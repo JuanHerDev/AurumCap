@@ -1,0 +1,28 @@
+# created by virtualenv automatically
+
+
+#Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+#Virtual environments
+venv/
+env/
+
+#Environments variables
+*.env
+
+#Logs
+*.log
+
+# IDEs
+.idea/
+.vscode/
+
+#Byte-compiled files
+*.pyc
+
+todo.txt
