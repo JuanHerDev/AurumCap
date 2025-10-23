@@ -28,7 +28,7 @@ def register(user: user_schema.UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_user)
 
-    access_token = utils.create_access_token(subject=new_user.id)
+    access_token = utils.create_access_token(subject=new_user.email)
     return {"access_token": access_token, "token_type": "bearer"}
 
 """
@@ -40,7 +40,7 @@ def login(user: user_schema.UserLogin, db: Session = Depends(get_db)):
     if not db_user or not db_user.hashed_password or not utils.verify_password(user.password, db_user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     
-    access_token = utils.create_access_token(subject=db_user.id)
+    access_token = utils.create_access_token(subject=db_user.email)
     return {"access_token": access_token, "token_type": "bearer"}
 
 
