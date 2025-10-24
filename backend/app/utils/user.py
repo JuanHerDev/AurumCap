@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from dotenv import load_dotenv
-import os
-
+import os, secrets, hashlib
+from datetime import datetime, timedelta
 
 load_dotenv()
 
@@ -21,7 +21,9 @@ if not SECRET_KEY:
 
 ALGORITHM = os.getenv("ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS"))
 
+# Password Managment
 
 def hash_password(password: str) -> str:
     # bcrypt has a maximum password length of 72 bytes
@@ -33,9 +35,10 @@ def hash_password(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
+
 # Token Managment
 
-def create_access_token(*, subject: str, expires_minutes: int | None = None) -> str:
+def create_access_token(*, subject: int | str, expires_minutes: int | None = None) -> str:
     """
     Create a JWT access token.
     """
@@ -44,22 +47,35 @@ def create_access_token(*, subject: str, expires_minutes: int | None = None) -> 
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
+def create_refresh_token(*, subject: int | str, expires_days: int | None = None) -> str:
+    return secrets.token_urlsafe(64) # Generate a secure random token
+    
 
-def verify_access_token(token: str):
+def hash_token(token: str) -> str:
+    # Hash the token with SHA-256 and a secret key
+    h = hashlib.sha256()
+    h.update(token.encode('utf-8'))
+    h.update(SECRET_KEY.encode('utf-8'))
+    return h.hexdigest()
+
+def verify_refresh_token_hash(token:str, token_hash:str) -> bool:
+    return hash_token(token) == token_hash
+
+def verify_access_token(token: str) -> int:
     """
     Decode and verify a JWT access token.
     """
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email = payload.get("sub")
-        if not email:
+        user_id = payload.get("sub")
+        if not user_id:
             raise JWTError("Invalid token: missing subject")
-        return email
-    except JWTError as e:
+        return int(user_id)
+    except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
+            headers={"WWW-Authenticate": "Bearer"}
         )
     
 # Get current user dependency
@@ -68,8 +84,8 @@ def get_current_user(
         db: Session = Depends(get_db),
 ):
     token = credentials.credentials
-    email = verify_access_token(token)
-    user = db.query(User).filter(User.email == email).first()
+    user_id = verify_access_token(token)
+    user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return user
