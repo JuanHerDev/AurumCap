@@ -77,19 +77,6 @@ def oauth_login(provider: str, token: str, db: Session = Depends(get_db)):
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.get("/me")
-def get_me(token: str = Depends(get_current_token), db: Session = Depends(get_db)):
-    from jose import jwt, JWTError
-    from app.utils.user import SECRET_KEY, ALGORITHM
-
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    user = db.query(user_models.User).filter(user_models.User.email == email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
+def get_me(current_user: user_models.User = Depends(utils.get_current_user)):
+    # Return current user info by jwt token
+    return current_user
