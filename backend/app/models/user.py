@@ -1,13 +1,25 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum
 from sqlalchemy.sql import func
-from app.database import Base
+from sqlalchemy.orm import relationship
+from datetime import datetime, timezone
+from app.db.database import Base
 import enum
 
+# Enum for authentication providers
 class AuthProviderEnum(enum.Enum):
     local = "local"
     google = "google"
     apple = "apple"
 
+# Enum for user roles
+class UserRole(str, enum.Enum):
+    admin = "admin"
+    analyst = "analyst"
+    investor = "investor"
+    support = "support"
+
+
+# User model
 class User(Base):
     __tablename__= 'users'
 
@@ -18,4 +30,9 @@ class User(Base):
     auth_provider = Column(Enum(AuthProviderEnum), default=AuthProviderEnum.local, nullable=False) # local, google, apple, etc.
     picture_url = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    role = Column(Enum(UserRole), default=UserRole.investor, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    # Relationship with tokens
+    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")

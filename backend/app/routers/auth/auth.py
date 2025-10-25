@@ -3,9 +3,10 @@ from sqlalchemy.orm import Session
 from jose import JWTError
 from datetime import datetime, timedelta, timezone
 from app.utils import user as utils
-from app.database import get_db
+from backend.app.db.database import get_db
 from app.models import user as user_models
 from app.models.refresh_token import RefreshToken
+from app.models.user import UserRole
 from app.schemas import user as user_schema
 from app.core.security import get_current_token
 from app.utils.oauth import verify_google_token
@@ -29,12 +30,18 @@ def register(user: user_schema.UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
     
     hashed_pw = utils.hash_password(user.password)
-    new_user = user_models.User(email=user.email, hashed_password=hashed_pw, auth_provider="local", is_active=True)
+    new_user = user_models.User(
+            email=user.email,
+            hashed_password=hashed_pw,
+            auth_provider="local",
+            is_active=True,
+            role=UserRole.investor # Default role
+        )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
 
-    access_token = utils.create_access_token(subject=new_user.email)
+    access_token = utils.create_access_token(subject=new_user.id)
     return {"access_token": access_token, "token_type": "bearer"}
 
 """

@@ -1,8 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .database import Base, engine
+from .db.database import Base, engine
 from app.routers.auth import auth as auth_routes
 from app.routers.auth import oauth_google as oauth_google_routes
+from app.routers import users
 import uvicorn
 
 # Create all database tables if doesn't exist
@@ -32,6 +33,7 @@ app.add_middleware(
 
 app.include_router(auth_routes.router)
 app.include_router(oauth_google_routes.router)
+app.include_router(users.router)
 
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)

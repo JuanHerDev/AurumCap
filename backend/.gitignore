@@ -8,6 +8,12 @@ __pycache__/
 *.pyd
 *.so
 
+#Alembic y migrations
+alembic/__pycache__/
+alembic/versions/__pycache__/
+alembic/versions/*.pyc
+alembic/*.pyc
+
 #Virtual environments
 venv/
 env/
