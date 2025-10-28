@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from jose import JWTError
 from datetime import datetime, timedelta, timezone
 from app.utils import user as utils
-from backend.app.db.database import get_db
+from app.db.database import get_db
 from app.models import user as user_models
 from app.models.refresh_token import RefreshToken
 from app.models.user import UserRole
