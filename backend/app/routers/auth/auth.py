@@ -8,8 +8,12 @@ from app.models import user as user_models
 from app.models.refresh_token import RefreshToken
 from app.models.user import UserRole
 from app.schemas import user as user_schema
+from redis.asyncio import Redis
 from app.core.security import get_current_token
+from app.core.redis_client import get_redis
 from app.utils.oauth import verify_google_token
+from app.utils.bruteforce import is_blocked, record_failed_attempt, reset_attempts
+import asyncio
 
 router = APIRouter(
     prefix="/auth",
@@ -48,11 +52,33 @@ def register(user: user_schema.UserCreate, db: Session = Depends(get_db)):
 Local Login
 """
 @router.post("/login", response_model=user_schema.Token)
-def login(user: user_schema.UserLogin, response: Response, request: Request, db: Session = Depends(get_db)):
-    db_user = db.query(user_models.User).filter(user_models.User.email == user.email).first()
-    if not db_user or not db_user.hashed_password or not utils.verify_password(user.password, db_user.hashed_password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+async def login(user: user_schema.UserLogin, response: Response, request: Request, db: Session = Depends(get_db), redis: Redis = Depends(get_redis)):
+
+    ip = request.client.host if request.client else "unknown"
+    identifier = user.email.lower()
+
+    # Check if blocked
+    if await is_blocked(ip=ip, identifier=identifier, redis=redis):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed login attempts. Please try again later."
+        )
     
+    # Fetch user
+    db_user = db.query(user_models.User).filter(user_models.User.email == user.email).first()
+
+    if not db_user or not db_user.hashed_password or not utils.verify_password(user.password, db_user.hashed_password):
+        # record failed attempt async
+        await record_failed_attempt(ip=ip, identifier=identifier, redis=redis, request=request)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password"
+        )
+    
+    # Successful login: reset attempts
+    await reset_attempts(ip=ip, identifier=identifier, redis=redis)
+
+    # Create tokens
     access_token = utils.create_access_token(subject=db_user.id)
     
     # Create refresh token and store in DB hashed
@@ -128,7 +154,7 @@ def refresh_token(response: Response, request: Request, db: Session = Depends(ge
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
     
     # Generate new access token and rotate refresh token
-    user = db.query(user_models.User).get(db_rt.user_id)
+    user = db.get(user_models.User, db_rt.user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     

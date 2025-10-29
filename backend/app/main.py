@@ -1,8 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .db.database import Base, engine
+from app.db.database import Base, engine
 from app.routers.auth import auth as auth_routes
 from app.routers.auth import oauth_google as oauth_google_routes
+from app.routers.tests import test_routes as test_routes
+from app.middleware.security_logger import SecutiryLoggerMiddleware
+from app.middleware.alert_middleware import AlertMiddleware
+from app.core.redis_client import connect_redis, close_redis
 from app.routers import users
 import uvicorn
 
@@ -34,6 +38,20 @@ app.add_middleware(
 app.include_router(auth_routes.router)
 app.include_router(oauth_google_routes.router)
 app.include_router(users.router)
+app.include_router(test_routes.router)
+
+app.add_middleware(SecutiryLoggerMiddleware)
+app.add_middleware(AlertMiddleware)
+
+@app.on_event("startup")
+async def on_startup():
+    # Connect to redis and validate
+    await connect_redis()
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    # Close redis connection
+    await close_redis()
 
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)

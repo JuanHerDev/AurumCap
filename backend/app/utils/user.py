@@ -8,7 +8,7 @@ from app.db.database import get_db
 from app.models.user import User
 from dotenv import load_dotenv
 import os, secrets, hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 load_dotenv()
 
@@ -43,7 +43,7 @@ def create_access_token(*, subject: int | str, expires_minutes: int | None = Non
     Create a JWT access token.
     """
     to_encode = {"sub": str(subject)}
-    expire = datetime.utcnow() + timedelta(minutes=(expires_minutes or ACCESS_TOKEN_EXPIRE_MINUTES))
+    expire = datetime.now(timezone.utc) + timedelta(minutes=(expires_minutes or ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 

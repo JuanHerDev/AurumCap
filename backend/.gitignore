@@ -1,34 +1,105 @@
-# created by virtualenv automatically
-
-
-#Python
+# --- Python / general ---
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 *.so
+*.egg-info/
+*.egg
+*.whl
+pip-wheel-metadata/
 
-#Alembic y migrations
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Environment files (sensitive)
+.env
+.env.*
+*.env
+
+# Logs / runtime
+*.log
+*.pid
+tmp/
+tmp/**
+
+# Pytest / testing
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Type check / caches
+.mypy_cache/
+.pytype/
+.cache/
+
+# Build / distribution
+build/
+dist/
+
+# Alembic - ignore compiled files only (keep migrations source!)
 alembic/__pycache__/
 alembic/versions/__pycache__/
 alembic/versions/*.pyc
 alembic/*.pyc
 
-#Virtual environments
-venv/
-env/
+# --- Docker ---
+/docker-compose.override.yml
+/.env.docker
+docker-compose.override.yml
+docker-compose.*.yml
+*.container
+*.pid
+*.tmp
 
-#Environments variables
-*.env
+# Docker local artifacts
+data/
+volumes/
+docker-data/
+docker-volume/
+docker-cache/
 
-#Logs
-*.log
+# Docker Desktop for Windows
+*.raw
 
-# IDEs
-.idea/
+# --- Node / Frontend (if frontend lives in repo) ---
+node_modules/
+.next/
+.npm/
+.yarn/
+.pnpm-store/
+pnpm-lock.yaml
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Frontend build artifacts
+out/
+build/
+dist/
+
+# Editor / IDE for frontend
 .vscode/
 
-#Byte-compiled files
-*.pyc
+# --- Database files ---
+*.sqlite
+*.sqlite3
+*.db
 
+# --- Misc ---
+coverage/
+reports/
+*.orig
+*.bak
 todo.txt
