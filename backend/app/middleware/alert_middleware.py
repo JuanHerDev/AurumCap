@@ -2,7 +2,7 @@ import time
 import logging
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
-from app.utils.discord_alerts import send_discord_alert
+from app.utils.alerts.discord_alerts import send_discord_alert
 
 logger = logging.getLogger(__name__)
 

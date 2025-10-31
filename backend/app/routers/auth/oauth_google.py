@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from app.db.database import get_db
-from app.utils import user as utils
+from app.utils.users import user as utils
 from app.models import user as user_models
 import os
 import requests

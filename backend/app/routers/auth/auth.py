@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Response, 
 from sqlalchemy.orm import Session
 from jose import JWTError
 from datetime import datetime, timedelta, timezone
-from app.utils import user as utils
+from app.utils.users import user as utils
 from app.db.database import get_db
 from app.models import user as user_models
 from app.models.refresh_token import RefreshToken
@@ -11,8 +11,8 @@ from app.schemas import user as user_schema
 from redis.asyncio import Redis
 from app.core.security import get_current_token
 from app.core.redis_client import get_redis
-from app.utils.oauth import verify_google_token
-from app.utils.bruteforce import is_blocked, record_failed_attempt, reset_attempts
+from app.utils.auth.oauth import verify_google_token
+from app.utils.alerts.bruteforce import is_blocked, record_failed_attempt, reset_attempts
 import asyncio
 
 router = APIRouter(

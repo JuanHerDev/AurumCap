@@ -3,7 +3,7 @@ import asyncio
 from datetime import timedelta
 from redis.asyncio import Redis
 from dotenv import load_dotenv
-from app.utils.discord_alerts import send_discord_alert
+from app.utils.alerts.discord_alerts import send_discord_alert
 from typing import Optional
 
 load_dotenv()

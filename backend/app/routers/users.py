@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from app.utils.roles import require_role
+from app.utils.users.roles import require_role
 from app.models.user import UserRole
 
 router = APIRouter(
