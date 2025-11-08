@@ -4,14 +4,16 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.utils.users import user as utils
 from app.models import user as user_models
+from urllib.parse import urlencode
 import os
 import requests
 
-router = APIRouter(prefix="/auth/google", tags=["OAuth Google"])
+router = APIRouter(prefix="/auth/oauth/google", tags=["OAuth Google"])
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://127.0.0.1:3000")
 
 @router.get("/login")
 def google_login():
@@ -57,14 +59,21 @@ def google_callback(code: str, db: Session = Depends(get_db)):
     access_token = token_json.get("access_token")
 
     if not access_token:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No access token from Google")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No access token received from Google")
 
     # Obtener información del perfil del usuario
-    user_info = requests.get(
+    user_info_response = requests.get(
         "https://www.googleapis.com/oauth2/v1/userinfo",
-        headers={"Authorization": f"Bearer {access_token}"}
-    ).json()
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
 
+    if user_info_response.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to fetch user info from Google",
+        )
+    
+    user_info = user_info_response.json()
     email = user_info.get("email")
     name = user_info.get("name")
     picture = user_info.get("picture")
@@ -91,6 +100,13 @@ def google_callback(code: str, db: Session = Depends(get_db)):
         db.refresh(user)
 
     # Generar tu JWT local
-    jwt_token = utils.create_access_token(data={"sub": str(user.id)})
+    jwt_token = utils.create_access_token(
+        subject=str(user.id),
+        extra_data={"email": user.email, "auth_provider": "google"}
+    )
 
-    return {"access_token": jwt_token, "token_type": "bearer", "email": email, "full_name": name, "picture": picture, "auth_provider": "google"}
+    # Redirect to frontend with token
+    query_params = urlencode({"token": jwt_token, "email": email, "name": name})
+    redirect_url = f"{FRONTEND_URL}/auth/success?{query_params}"
+
+    return RedirectResponse(url=redirect_url)

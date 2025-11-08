@@ -38,13 +38,23 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 # Token Managment
 
-def create_access_token(*, subject: int | str, expires_minutes: int | None = None) -> str:
+def create_access_token(
+    *, subject: int | str, extra_data: dict | None = None, expires_minutes: int | None = None
+) -> str:
     """
     Create a JWT access token.
+    Can include extra user data (e.g. from Google).
     """
     to_encode = {"sub": str(subject)}
-    expire = datetime.now(timezone.utc) + timedelta(minutes=(expires_minutes or ACCESS_TOKEN_EXPIRE_MINUTES))
+    
+    if extra_data:
+        to_encode.update(extra_data)
+    
+    expire = datetime.now(timezone.utc) + timedelta(
+        minutes=(expires_minutes or ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
     to_encode.update({"exp": expire})
+    
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 def create_refresh_token(*, subject: int | str, expires_days: int | None = None) -> str:

@@ -7,8 +7,10 @@ from app.routers.tests import test_routes as test_routes
 from app.middleware.security_logger import SecutiryLoggerMiddleware
 from app.middleware.alert_middleware import AlertMiddleware
 from app.core.redis_client import connect_redis, close_redis
+from app.core.config import settings
 from app.routers import users
 import uvicorn
+import os
 
 # Create all database tables if doesn't exist
 def create_tables():
@@ -19,14 +21,18 @@ create_tables()
 app = FastAPI(
     title="AurumCap API",
     description="API RESTful for managment cripto and stocks investment portfolios in the AurumCap application",
-    version="1.0.0"
+    version="1.0.0",
+    debug=settings.DEBUG
 )
 
+IS_PROD = os.getenv("IS_PROD", "false").lower() == "true"
+
 origins = [
-    "http://localhost:3000", # local frontend
-    "https://aurumcap.vercel.app" # production vercell
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
 
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
