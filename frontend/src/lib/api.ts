@@ -1,115 +1,93 @@
-import axios, { AxiosError, AxiosInstance } from 'axios';
-import { jwtDecode } from 'jwt-decode';
+import axios from "axios";
 
-// Base URL for the API, configurable via environment variable (in development use Localhost)
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_USER || "http://127.0.0.1:8000";
+const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-// Keys for storing tokens in localStorage
-const ACCESS_TOKEN_KEY = "access_token";
-const REFRESH_TOKEN_KEY = "refresh_token";
-
-// Function to get the access token
-function getAccessToken(): string | null {
-    return typeof window !== "undefined" ? localStorage.getItem(ACCESS_TOKEN_KEY) : null;
-}
-
-// Function to save tokens
-function setAccessToken(token: string) {
-    if (typeof window !== "undefined") {
-        localStorage.setItem(ACCESS_TOKEN_KEY, token)
-    }
-}
-
-// Create an Axios instance
-const api: AxiosInstance = axios.create({
-    baseURL: API_BASE_URL,
-    withCredentials: true,
+const api = axios.create({
+    baseURL,
+    withCredentials: true, // Send refresh cookio on /auth/refresh
     headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     },
 });
 
-// Interceptor of requests to add Authorization header
-api.interceptors.request.use(
-    (config) => {
-        const token = getAccessToken();
-        if (token && config.headers) {
-            config.headers.Authorization = `Bearer ${token}`;
-        }
-        return config;
-    },
-    (error) => Promise.reject(error)
-);
+// Helper to read token from sessionStorage
+export function getAccessToken(): string | null {
+    if (typeof window === "undefined") return null;
+    return sessionStorage.getItem("aurum_access_token");
+}
 
-// Interceptor of responses to manage the token expiration
+export function setAccessToken(token: string | null) {
+    if (typeof window === "undefined") return;
+    if (!token) sessionStorage.removeItem("aurum_access_token");
+    else sessionStorage.setItem("aurum_access_token", token);
+}
+
+// Attach access token before requests
+api.interceptors.request.use((cfg) => {
+  const token = getAccessToken();
+  if (token) cfg.headers = { ...(cfg.headers as any), Authorization: `Bearer ${token}` };
+  return cfg;
+});
+
+// Response interceptor: try refresh on 401 once and retry request
 let isRefreshing = false;
-let failedQueue: { resolve: (value?: unknown) => void; reject: (reason?: any) => void}[] = [];
+let failedQueue: Array<{
+    resolve: (value?: any) => void;
+    reject: (err?: any) => void;
+}> = [];
 
 const processQueue = (error: any, token: string | null = null) => {
-    failedQueue.forEach((prom) => {
-        if (error) {
-            prom.reject(error);
-        } else {
-            prom.resolve(token);
-        }
+    failedQueue.forEach((p) => {
+        if (error) p.reject(error);
+        else p.resolve(token);
     });
     failedQueue = [];
-};
+}
 
 api.interceptors.response.use(
-    (response) => response,
-    async (error: AxiosError) => {
-        const originalRequest = error.config as any;
+    (res) => res,
+    async (err) => {
+        const originalRequest = err.config;
+        if (!originalRequest) return Promise.reject(err);
 
-        // If not response or not 401 error, reject
-        if (!error.response || error.response.status !== 401) {
-            return Promise.reject(error);
-        }
+        // Ignore if no response or not 401
+        if (err.response?.status !== 401) return Promise.reject(err);
 
-        // Avoid infinite loop
-        if (originalRequest._retry) {
-            return Promise.reject(error);
-        }
+        // Prevent infinite loop
+        if (originalRequest._retry) return Promise.reject(err);
+        originalRequest._retry = true;
 
-        // Mark for avoid multiple refresh simultaneously
         if (isRefreshing) {
-            return new Promise((resolve, reject) => {
-                failedQueue.push({resolve, reject });
+            return new Promise(function (resolve, reject) {
+                failedQueue.push({ resolve, reject });
             })
             .then((token) => {
-                originalRequest.headers.Authorization = `Bearer ${token}`;
+                if (token) originalRequest.headers.Authorization = `Bearer ${token}`;
                 return api(originalRequest);
             })
-            .catch((err) => Promise.reject(err));
+            .catch((e) => Promise.reject(e));
         }
 
-        originalRequest._retry = true;
         isRefreshing = true;
 
         try {
-            const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
-            if (!refreshToken) throw new Error("No refresh token found");
+            // Call refresh endpoint to set a new access_token
+            const refreshRes = await api.post("/auth/refresh");
+            const newToken = refreshRes.data?.access_token;
 
-            // Call a new access token
-            const res = await axios.post(`${API_BASE_URL}/auth/refresh`, {
-                refresh_token: refreshToken,
-            });
-
-            const newAccessToken = res.data.access_token;
-            setAccessToken(newAccessToken);
-
-            api.defaults.headers.common.Authorization = `Bearer ${newAccessToken}`;
-            processQueue(null, newAccessToken);
-            return api(originalRequest);
-        } catch (err) {
-            processQueue(err, null);
-            // If refresh fails, redirect to login
-            if (typeof window !== "undefined") {
-                localStorage.removeItem(ACCESS_TOKEN_KEY);
-                localStorage.removeItem(REFRESH_TOKEN_KEY);
-                window.location.href = "/login";
+            if (newToken) {
+                setAccessToken(newToken);
+                processQueue(null, newToken);
+                originalRequest.headers.Authorization = `Bearer ${newToken}`;
+                return api(originalRequest);
+            } else {
+                // No token returned | Logout
+                processQueue(new Error("No token"), null);
+                return Promise.reject(err);
             }
-            return Promise.reject(err);
+        } catch (refreshErr) {
+            processQueue(refreshErr, null);
+            return Promise.reject(refreshErr);
         } finally {
             isRefreshing = false;
         }
