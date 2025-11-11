@@ -1,0 +1,18 @@
+<!-- public/mobile-hero.svg -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 220" preserveAspectRatio="xMidYMid meet">
+  <defs>
+    <linearGradient id="mh" x1="0" x2="1">
+      <stop offset="0" stop-color="#fffaf2"/>
+      <stop offset="1" stop-color="#f4e2b8"/>
+    </linearGradient>
+  </defs>
+
+  <rect rx="16" width="100%" height="100%" fill="url(#mh)"/>
+  <g transform="translate(20,18)">
+    <rect x="0" y="24" width="80" height="80" rx="12" fill="#d4af37" opacity="0.12"/>
+    <rect x="96" y="18" width="220" height="100" rx="12" fill="#fff" stroke="#f0e0c0" />
+    <path d="M110 68 C150 36 190 30 234 22" stroke="#c19a32" stroke-width="4" fill="none"/>
+    <text x="20" y="140" fill="#2D1B0E" font-size="20" font-weight="700">Invierte sin</text>
+    <text x="20" y="160" fill="#2D1B0E" font-size="20" font-weight="700">complicarte</text>
+  </g>
+</svg>
