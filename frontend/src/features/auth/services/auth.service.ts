@@ -25,6 +25,21 @@ export async function logoutRequest() {
 }
 
 export async function meRequest() {
-    const res = await api.get("/auth/me");
-    return res.data;
+    const token = localStorage.getItem("access_token");
+    if (!token) throw new Error("No token found");
+
+    const res = await fetch("http://localhost:8000/auth/me", {
+        method: "GET",
+        headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+        },
+        credentials: "include",
+    });
+
+    if (!res.ok) {
+        throw new Error(`Error fetching user: ${res.status}`)
+    }
+
+    return await res.json();
 }

@@ -47,98 +47,77 @@ export default function AuthForm({ mode }: Props) {
   };
 
   return (
-    <form
-      onSubmit={handleSubmit(onSubmit)}
-      className="flex flex-col gap-5 mt-6 w-full"
-    >
+    <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4 w-full">
       {/* Email */}
       <div>
-        <label className="block text-sm font-semibold text-gray-700 mb-1">
-          Correo electrónico
-        </label>
+        <label className="block text-sm font-semibold text-gray-700 mb-1">Correo electrónico</label>
         <div className="relative">
           <Mail className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
           <input
             type="email"
             {...register("email")}
             placeholder="tu.correo@ejemplo.com"
-            className="w-full pl-10 pr-3 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-yellow-400 outline-none text-sm"
+            className="w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl shadow-sm bg-white focus:outline-none focus:ring-2 focus:ring-yellow-300 transition text-sm"
           />
         </div>
-        {errors.email && (
-          <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>
-        )}
+        {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>}
       </div>
 
       {/* Password */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Contraseña
-        </label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Contraseña</label>
         <div className="relative">
           <Lock className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
           <input
             type={showPassword ? "text" : "password"}
             {...register("password")}
             placeholder="Ingresa tu contraseña"
-            className="w-full pl-10 pr-10 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-yellow-400 outline-none text-sm"
+            className="w-full pl-10 pr-10 py-3 border border-gray-200 rounded-xl shadow-sm bg-white focus:outline-none focus:ring-2 focus:ring-yellow-300 transition text-sm"
           />
           <button
             type="button"
             onClick={() => setShowPassword(!showPassword)}
             className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600"
+            aria-label="mostrar contraseña"
           >
             {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
         </div>
-        {errors.password && (
-          <p className="text-red-500 text-xs mt-1">
-            {errors.password.message}
-          </p>
-        )}
+        {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>}
       </div>
 
-      {/* Confirm Password (solo register) */}
+      {/* Confirm Password (register) */}
       {mode === "register" && (
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Confirmar contraseña
-          </label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Confirmar contraseña</label>
           <div className="relative">
             <Lock className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
             <input
               type={showConfirm ? "text" : "password"}
               {...register("confirmPassword")}
               placeholder="Confirma tu contraseña"
-              className="w-full pl-10 pr-10 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-yellow-400 outline-none text-sm"
+              className="w-full pl-10 pr-10 py-3 border border-gray-200 rounded-xl shadow-sm bg-white focus:outline-none focus:ring-2 focus:ring-yellow-300 transition text-sm"
             />
             <button
               type="button"
               onClick={() => setShowConfirm(!showConfirm)}
               className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600"
+              aria-label="mostrar confirmar contraseña"
             >
               {showConfirm ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>
           </div>
-          {errors.confirmPassword && (
-            <p className="text-red-500 text-xs mt-1">
-              {errors.confirmPassword.message}
-            </p>
-          )}
+          {errors.confirmPassword && <p className="text-red-500 text-xs mt-1">{errors.confirmPassword.message}</p>}
         </div>
       )}
 
-      {/* Botón principal */}
+      {/* Submit */}
       <button
         type="submit"
         disabled={isSubmitting}
-        className="w-full bg-[#d4af37] hover:bg-[#c09c32] active:scale-[0.98] text-white font-semibold py-3 rounded-xl transition-all"
+        className="w-full bg-[#d4af37] hover:bg-[#c09c32] active:scale-95 text-white font-semibold py-3 rounded-xl transition-all shadow-sm"
       >
-        {isSubmitting
-          ? "Procesando..."
-          : mode === "login"
-          ? "Iniciar sesión"
-          : "Registrarme"}
+        {isSubmitting ? "Procesando..." : mode === "login" ? "Iniciar sesión" : "Registrarme"}
       </button>
 
       {/* Divider */}
@@ -151,24 +130,18 @@ export default function AuthForm({ mode }: Props) {
       {/* Google */}
       <GoogleButton />
 
-      {/* Cambio de modo */}
+      {/* Toggle */}
       {mode === "login" ? (
         <p className="text-sm text-gray-500 text-center mt-3">
           ¿No tienes cuenta?{" "}
-          <a
-            href="/register"
-            className="text-[#d4af37] font-semibold hover:underline"
-          >
+          <a href="/register" className="text-[#d4af37] font-semibold hover:underline">
             Regístrate
           </a>
         </p>
       ) : (
         <p className="text-sm text-gray-500 text-center mt-3">
           ¿Ya tienes cuenta?{" "}
-          <a
-            href="/login"
-            className="text-[#d4af37] font-semibold hover:underline"
-          >
+          <a href="/login" className="text-[#d4af37] font-semibold hover:underline">
             Inicia sesión
           </a>
         </p>
