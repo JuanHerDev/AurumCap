@@ -57,8 +57,10 @@ def create_access_token(
     
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-def create_refresh_token(*, subject: int | str, expires_days: int | None = None) -> str:
-    return secrets.token_urlsafe(64) # Generate a secure random token
+def create_refresh_token(*, subject: int | str, expires_days: int | None = None):
+    refresh_token = secrets.token_urlsafe(64)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=(expires_days or REFRESH_TOKEN_EXPIRE_DAYS))
+    return refresh_token, expires_at
     
 
 def hash_token(token: str) -> str:

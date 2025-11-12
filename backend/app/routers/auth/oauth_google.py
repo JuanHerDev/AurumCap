@@ -39,31 +39,33 @@ def google_callback(code: str, response: Response, db: Session = Depends(get_db)
     """
     Handle Google's redirect after user login
     """
-    # Intercambiar el "code" por un token de acceso
+
+    # 1. Exchange code for token
     token_res = requests.post(
         "https://oauth2.googleapis.com/token",
         data={
-        "code": code,
-        "client_id": GOOGLE_CLIENT_ID,
-        "client_secret": GOOGLE_CLIENT_SECRET,
-        "redirect_uri": GOOGLE_REDIRECT_URI,
-        "grant_type": "authorization_code"
-
+            "code": code,
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "redirect_uri": GOOGLE_REDIRECT_URI,
+            "grant_type": "authorization_code",
         },
     )
 
     if token_res.status_code != 200:
+        print("GOOGLE TOKEN RESPONSE:", token_res.text)
+        print("REDIRECT URI USED:", GOOGLE_REDIRECT_URI)
         raise HTTPException(status_code=400, detail="Failed to exchange Google code")
-    
+
     token_json = token_res.json()
-    google_access_token = token_json.get()
+    google_access_token = token_json.get("access_token")
 
     if not google_access_token:
         raise HTTPException(status_code=400, detail="Missing Google access token")
-    
-    # Fetch google user info
+
+    # 2. Get user info
     user_info = requests.get(
-        "https://www.googleapis.com/oauth2/v1/userinfo",
+        "https://openidconnect.googleapis.com/v1/userinfo",
         headers={"Authorization": f"Bearer {google_access_token}"},
     ).json()
 
@@ -73,8 +75,8 @@ def google_callback(code: str, response: Response, db: Session = Depends(get_db)
 
     if not email:
         raise HTTPException(status_code=400, detail="Google account has no email")
-    
-    # Create or find user
+
+    # 3. Create/fetch user
     user = db.query(user_models.User).filter(user_models.User.email == email).first()
 
     if not user:
@@ -84,26 +86,32 @@ def google_callback(code: str, response: Response, db: Session = Depends(get_db)
             auth_provider="google",
             picture_url=picture,
             hashed_password=None,
-            is_active=True
+            is_active=True,
         )
         db.add(user)
         db.commit()
         db.refresh(user)
 
-    # Generate Local JWT access token
-    access_token = utils.create_access_token({"sub": str(user.id)})
-
-    # Generate Refresh Token
-    refresh_token, expires_at = utils.create_refresh_token()
-
-    # Save refresh in redis
-    redis_client.setex(
-        f"refresh:{refresh_token}", # key
-        timedelta(days=30), # expiration
-        str(user.id), # value
+    # 4. JWT (fixed)
+    access_token = utils.create_access_token(
+        subject=user.id,
+        extra_data={
+            "email": user.email,
+            "name": user.full_name,
+            "picture": user.picture_url,
+        },
     )
 
-    # Set HTTPOnly cookie
+    # 5. Refresh token (fixed)
+    refresh_token, expires_at = utils.create_refresh_token(subject=user.id)
+
+    redis_client.setex(
+        f"refresh:{refresh_token}",
+        timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        str(user.id),
+    )
+
+    # 6. Cookie
     response.set_cookie(
         key=settings.REFRESH_COOKIE_NAME,
         value=refresh_token,
@@ -114,11 +122,9 @@ def google_callback(code: str, response: Response, db: Session = Depends(get_db)
         expires=int((expires_at - datetime.now(timezone.utc)).total_seconds()),
     )
 
-    # Redirect to frontend with access token
+    # 7. Redirect
     frontend_redirect = (
         f"{settings.FRONTEND_URL}/oauth-success?access_token={access_token}"
     )
 
     return RedirectResponse(url=frontend_redirect)
-
-    

@@ -9,6 +9,9 @@ load_dotenv()
 logger = logging.getLogger("app.redis")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+# If REQUIRE_REDIS is true (default), startup will raise when Redis is unavailable.
+# Set REQUIRE_REDIS=false in development to allow the app to start without Redis.
+REQUIRE_REDIS = os.getenv("REQUIRE_REDIS", "true").lower() == "true"
 
 # Singleton client
 
@@ -26,7 +29,13 @@ async def connect_redis() -> None:
         logger.info("Connected to Redis successfully.")
     except Exception as e:
         logger.error(f"Failed to connect to Redis: {e}")
-        raise e
+        if REQUIRE_REDIS:
+            # In production we want to fail fast if Redis is required
+            raise e
+        else:
+            # In development allow the app to continue without Redis
+            logger.warning("Continuing without Redis because REQUIRE_REDIS is false.")
+            return
     
 async def close_redis() -> None:
     # Close connection pool on shutdown
