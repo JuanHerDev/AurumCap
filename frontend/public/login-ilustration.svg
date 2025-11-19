@@ -1,25 +1,52 @@
-<!-- public/login-illustration.svg -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 600" preserveAspectRatio="xMidYMid meet">
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1066" viewBox="0 0 1600 1066" role="img" aria-label="Bar chart illustration">
+  <!-- Background -->
+  <rect width="100%" height="100%" fill="#0b0b0b" />
+
+  <!-- Gradients -->
   <defs>
-    <linearGradient id="gg" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0" stop-color="#fff8f0"/>
-      <stop offset="1" stop-color="#d4af37"/>
+    <linearGradient id="goldGrad" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#f7d88a"/>
+      <stop offset="60%" stop-color="#d6b14a"/>
+      <stop offset="100%" stop-color="#b6861e"/>
     </linearGradient>
-    <filter id="blur2">
-      <feGaussianBlur stdDeviation="14"/>
+    <linearGradient id="goldLight" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#fff7e6"/>
+      <stop offset="100%" stop-color="#f8e7c9"/>
+    </linearGradient>
+    <filter id="softShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feOffset dx="0" dy="8" result="off"/>
+      <feGaussianBlur in="off" stdDeviation="10" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.5 0" result="shadow"/>
+      <feBlend in="SourceGraphic" in2="shadow" mode="normal"/>
     </filter>
   </defs>
 
-  <rect width="100%" height="100%" fill="#fff"/>
-  <g transform="translate(80,40)">
-    <rect x="10" y="220" width="180" height="240" rx="20" fill="url(#gg)"/>
-    <rect x="220" y="150" width="140" height="320" rx="20" fill="#fff4dd" />
-    <rect x="390" y="90" width="80" height="380" rx="16" fill="#f7e7c8"/>
-    <!-- small graph -->
-    <polyline points="40,300 80,260 140,280 200,210 260,240" fill="none" stroke="#8f6f1f" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="260" cy="240" r="8" fill="#8f6f1f"/>
-    <!-- floating coin -->
-    <circle cx="480" cy="420" r="28" fill="#d4af37" opacity="0.98"/>
-    <ellipse cx="480" cy="438" rx="48" ry="14" fill="#fff6e6" opacity="0.6"/>
+  <!-- Left bar (shortest) -->
+  <rect x="140" y="540" rx="24" ry="24" width="260" height="360" fill="url(#goldGrad)" filter="url(#softShadow)"/>
+
+  <!-- Middle bar -->
+  <rect x="460" y="420" rx="24" ry="24" width="260" height="480" fill="#fff6e6" filter="url(#softShadow)"/>
+
+  <!-- Right bar (tallest) -->
+  <rect x="780" y="300" rx="24" ry="24" width="260" height="600" fill="#f7e9cf" filter="url(#softShadow)"/>
+
+  <!-- Line graph on left bar -->
+  <g fill="none" stroke="#6f4f09" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="190,690 300,640 360,740 520,510" stroke-linejoin="round"/>
+    <!-- marker dot -->
+    <circle cx="520" cy="510" r="12" fill="#6f4f09" />
   </g>
+
+  <!-- Golden circle at base of right bar with small shadow -->
+  <g>
+    <ellipse cx="910" cy="910" rx="48" ry="18" fill="rgba(0,0,0,0.35)"/>
+    <circle cx="910" cy="870" r="36" fill="#d19a1e"/>
+  </g>
+
+  <!-- Subtle highlight on bars -->
+  <rect x="140" y="540" width="260" height="360" rx="24" ry="24" fill="url(#goldLight)" opacity="0.08"/>
+  <rect x="460" y="420" width="260" height="480" rx="24" ry="24" fill="url(#goldLight)" opacity="0.06"/>
+  <rect x="780" y="300" width="260" height="600" rx="24" ry="24" fill="url(#goldLight)" opacity="0.05"/>
+
 </svg>
