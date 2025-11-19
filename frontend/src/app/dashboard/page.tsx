@@ -2,8 +2,9 @@
 
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
 import { FaBookOpen, FaCalculator, FaBriefcase } from "react-icons/fa";
-import { useState } from "react";
+import { JSX, useState } from "react";
 import { useAuth } from "@/features/auth/context/AuthProvider";
+import { useRouter } from "next/navigation";
 
 const data = [
   { name: "Ene", value: 11000 },
@@ -23,7 +24,7 @@ export default function Dashboard() {
       {/* Header */}
       <header className="w-full max-w-5xl mb-6">
         <h1 className="text-xl font-semibold">
-         👋 Hola, <span className="text-yellow-400">{user?.full_name || "Usuario"}</span>
+          👋 Hola, <span className="text-yellow-400">{user?.full_name || "Usuario"}</span>
         </h1>
       </header>
 
@@ -70,17 +71,26 @@ export default function Dashboard() {
 
       {/* Quick Actions */}
       <section className="w-full max-w-5xl grid grid-cols-2 gap-4 lg:grid-cols-3">
-        <ActionCard icon={<FaBriefcase size={28} />} label="Portafolio" />
-        <ActionCard icon={<FaCalculator size={28} />} label="Simular inversión" />
-        <ActionCard icon={<FaBookOpen size={28} />} label="Aprender" />
+        <ActionCard icon={<FaBriefcase size={28} />} label="Portafolio" href="/portfolio" />
+        <ActionCard icon={<FaCalculator size={28} />} label="Simular inversión" href="/simulador" />
+        <ActionCard icon={<FaBookOpen size={28} />} label="Aprender" href="/aprender" />
       </section>
     </main>
   );
 }
 
-function ActionCard({ icon, label }: { icon: JSX.Element; label: string }) {
+function ActionCard({ icon, label, href }: { icon: JSX.Element; label: string; href?: string }) {
+  const router = useRouter();
+
+  const handleClick = () => {
+    if (href) router.push(href);
+  };
+
   return (
-    <div className="bg-zinc-900 rounded-2xl p-4 flex flex-col items-center justify-center hover:bg-zinc-800 transition">
+    <div
+      onClick={handleClick}
+      className="cursor-pointer bg-zinc-900 rounded-2xl p-4 flex flex-col items-center justify-center hover:bg-zinc-800 transition"
+    >
       <div className="text-yellow-500 mb-2">{icon}</div>
       <p className="text-sm font-medium">{label}</p>
     </div>

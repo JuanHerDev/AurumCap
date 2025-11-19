@@ -35,11 +35,7 @@ def google_login():
 
 
 @router.get("/callback")
-def google_callback(code: str, response: Response, db: Session = Depends(get_db)):
-    """
-    Handle Google's redirect after user login
-    """
-
+def google_callback(code: str, db: Session = Depends(get_db)):
     # 1. Exchange code for token
     token_res = requests.post(
         "https://oauth2.googleapis.com/token",
@@ -53,17 +49,12 @@ def google_callback(code: str, response: Response, db: Session = Depends(get_db)
     )
 
     if token_res.status_code != 200:
-        print("GOOGLE TOKEN RESPONSE:", token_res.text)
-        print("REDIRECT URI USED:", GOOGLE_REDIRECT_URI)
         raise HTTPException(status_code=400, detail="Failed to exchange Google code")
 
     token_json = token_res.json()
     google_access_token = token_json.get("access_token")
 
-    if not google_access_token:
-        raise HTTPException(status_code=400, detail="Missing Google access token")
-
-    # 2. Get user info
+    # 2. User info
     user_info = requests.get(
         "https://openidconnect.googleapis.com/v1/userinfo",
         headers={"Authorization": f"Bearer {google_access_token}"},
@@ -76,7 +67,7 @@ def google_callback(code: str, response: Response, db: Session = Depends(get_db)
     if not email:
         raise HTTPException(status_code=400, detail="Google account has no email")
 
-    # 3. Create/fetch user
+    # 3. Create or fetch user
     user = db.query(user_models.User).filter(user_models.User.email == email).first()
 
     if not user:
@@ -92,7 +83,7 @@ def google_callback(code: str, response: Response, db: Session = Depends(get_db)
         db.commit()
         db.refresh(user)
 
-    # 4. JWT (fixed)
+    # 4. Access token
     access_token = utils.create_access_token(
         subject=user.id,
         extra_data={
@@ -102,7 +93,7 @@ def google_callback(code: str, response: Response, db: Session = Depends(get_db)
         },
     )
 
-    # 5. Refresh token (fixed)
+    # 5. Refresh token
     refresh_token, expires_at = utils.create_refresh_token(subject=user.id)
 
     redis_client.setex(
@@ -111,7 +102,11 @@ def google_callback(code: str, response: Response, db: Session = Depends(get_db)
         str(user.id),
     )
 
-    # 6. Cookie
+    # 6. FRONTEND REDIRECT (create here)
+    redirect_url = f"{settings.FRONTEND_URL}/oauth-success?access_token={access_token}"
+    response = RedirectResponse(url=redirect_url, status_code=302)
+
+    # 7. Set cookie on this SAME response
     response.set_cookie(
         key=settings.REFRESH_COOKIE_NAME,
         value=refresh_token,
@@ -122,9 +117,4 @@ def google_callback(code: str, response: Response, db: Session = Depends(get_db)
         expires=int((expires_at - datetime.now(timezone.utc)).total_seconds()),
     )
 
-    # 7. Redirect
-    frontend_redirect = (
-        f"{settings.FRONTEND_URL}/oauth-success?access_token={access_token}"
-    )
-
-    return RedirectResponse(url=frontend_redirect)
+    return response

@@ -25,7 +25,7 @@ export async function logoutRequest() {
 }
 
 export async function meRequest() {
-    const token = localStorage.getItem("access_token");
+    const token = sessionStorage.getItem("aurum_access_token");
     if (!token) throw new Error("No token found");
 
     const res = await fetch("http://localhost:8000/auth/me", {
@@ -38,7 +38,7 @@ export async function meRequest() {
     });
 
     if (!res.ok) {
-        throw new Error(`Error fetching user: ${res.status}`)
+        throw new Error(`Error fetching user: ${res.status}`);
     }
 
     return await res.json();

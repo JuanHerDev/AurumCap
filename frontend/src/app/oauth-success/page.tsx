@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/features/auth/context/AuthProvider";
+import { setAccessToken } from "@/lib/api";
 
 export default function OAuthSuccessPage() {
   const router = useRouter();
@@ -12,23 +13,17 @@ export default function OAuthSuccessPage() {
   useEffect(() => {
     const token = searchParams.get("access_token");
 
-    if (token) {
-      // Save token
-      localStorage.setItem("access_token", token);
-
-      // Refresh context
-      refreshUser()
-        .then(() => {
-            router.push("/dashboard");
-        })
-        .catch((err) => {
-            console.error("Error al refrescar usuario:", err);
-            router.push("/login")
-        });
-    } else {
-      // If not token, redirect to login
+    if (!token) {
       router.push("/login");
+      return;
     }
+
+    // Guardar token globalmente
+    setAccessToken(token);
+
+    refreshUser()
+      .then(() => router.push("/dashboard"))
+      .catch(() => router.push("/login"));
   }, [searchParams, router, refreshUser]);
 
   return (
