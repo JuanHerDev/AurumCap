@@ -2,7 +2,17 @@ import pytest
 from unittest.mock import patch
 from decimal import Decimal
 
-@pytest.mark.asyncio
+# --- Mocks async correctos ---
+async def fake_crypto_price(*args, **kwargs):
+    return 60000
+
+async def fake_stock_price(*args, **kwargs):
+    return 200
+
+async def fake_fundamentals(*args, **kwargs):
+    return {"pe": 20}
+
+
 def test_summary(client):
     # --- Registrar usuario de prueba ---
     client.post("/auth/register", json={
@@ -34,10 +44,10 @@ def test_summary(client):
         "invested_amount": "300"
     }, headers=headers)
 
-    # --- Mock precios y fundamentals ---
-    with patch("app.services.prices_crypto.get_crypto_price", return_value=60000), \
-     patch("app.services.prices_stocks.get_stock_price", return_value=200), \
-     patch("app.services.fundamentals.get_fundamentals", return_value={"pe": 20}):
+    # --- Mock async de precios y fundamentals ---
+    with patch("app.routers.investments.get_crypto_price", side_effect=fake_crypto_price), \
+         patch("app.routers.investments.get_stock_price", side_effect=fake_stock_price), \
+         patch("app.routers.investments.get_fundamentals", side_effect=fake_fundamentals):
 
         r = client.get("/investments/summary", headers=headers)
         assert r.status_code == 200
@@ -50,14 +60,14 @@ def test_summary(client):
         expected_gain_loss = expected_current_value - expected_total_invested  # 10100
         expected_roi = (expected_gain_loss / expected_total_invested * Decimal("100")).quantize(Decimal("0.01"))
 
-        assert Decimal(data["current_value"]) == expected_current_value
-        assert Decimal(data["total_invested"]) == expected_total_invested
-        assert Decimal(data["gain_loss"]) == expected_gain_loss
-        assert Decimal(data["roi"]) == expected_roi
+        assert Decimal(str(data["current_value"])) == expected_current_value
+        assert Decimal(str(data["total_invested"])) == expected_total_invested
+        assert Decimal(str(data["gain_loss"])) == expected_gain_loss
+        assert Decimal(str(data["roi"])) == expected_roi
 
         items = {item["symbol"]: item for item in data["items"]}
-        assert items["BTC"]["current_price"] == Decimal("60000")
-        assert items["BTC"]["current_value"] == Decimal("60000")
-        assert items["AAPL"]["current_price"] == Decimal("200")
-        assert items["AAPL"]["current_value"] == Decimal("400")
+        assert Decimal(str(items["BTC"]["current_price"])) == Decimal("60000")
+        assert Decimal(str(items["BTC"]["current_value"])) == Decimal("60000")
+        assert Decimal(str(items["AAPL"]["current_price"])) == Decimal("200")
+        assert Decimal(str(items["AAPL"]["current_value"])) == Decimal("400")
         assert items["AAPL"]["fundamentals"] == {"pe": 20}

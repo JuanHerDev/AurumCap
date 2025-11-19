@@ -66,5 +66,9 @@ async def on_shutdown():
     # Close redis connection
     await close_redis()
 
+@app.get("/test-error")
+def test_error():
+    raise Exception("Test 500 error")
+
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)

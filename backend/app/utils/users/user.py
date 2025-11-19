@@ -57,10 +57,10 @@ def create_access_token(
     
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-def create_refresh_token(*, subject: int | str, expires_days: int | None = None):
-    refresh_token = secrets.token_urlsafe(64)
-    expires_at = datetime.now(timezone.utc) + timedelta(days=(expires_days or REFRESH_TOKEN_EXPIRE_DAYS))
-    return refresh_token, expires_at
+def create_refresh_token(subject: int):
+    expires = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    raw_refresh = secrets.token_urlsafe(32)
+    return raw_refresh, expires
     
 
 def hash_token(token: str) -> str:
@@ -90,14 +90,3 @@ def verify_access_token(token: str) -> int:
             headers={"WWW-Authenticate": "Bearer"}
         )
     
-# Get current user dependency
-def get_current_user(
-        credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme), 
-        db: Session = Depends(get_db),
-):
-    token = credentials.credentials
-    user_id = verify_access_token(token)
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    return user
