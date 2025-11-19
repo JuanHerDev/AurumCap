@@ -7,8 +7,8 @@ import type { PortfolioSummary } from "@/types/investment";
 const fetcher = () => getPortfolioSummary();
 
 export function usePortfolio(pollInterval = 15000) {
-  const { data, error, isLoading, mutate } = useSWR<PortfolioSummary>(
-    "/portfolio/summary",
+  const { data, error, isLoading, mutate } = useSWR(
+    "/investments/summary",
     fetcher,
     {
       refreshInterval: pollInterval,
@@ -18,8 +18,8 @@ export function usePortfolio(pollInterval = 15000) {
 
   return {
     summary: data,
-    loading: isLoading,
+    isLoading,
     error,
-    refresh: mutate,
+    mutate,
   };
 }

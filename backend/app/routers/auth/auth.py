@@ -47,7 +47,7 @@ from app.core.auth import (
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-REFRESH_COOKIE_NAME = "aurum_refresh_token"
+
 REFRESH_COOKIE_PATH = "/auth"
 IS_PROD = os.getenv("ENV") == "production"
 
@@ -301,7 +301,7 @@ async def logout(
     response: Response,
     current_user: user_models.User = Depends(get_current_user),
     redis: Redis = Depends(get_redis),
-    refresh_token: Optional[str] = Cookie(None, alias=REFRESH_COOKIE_NAME),
+    refresh_token: Optional[str] = Cookie(None, alias=settings.REFRESH_COOKIE_NAME),
     db: Session = Depends(get_db)
 ):
     # Destruir sesión en Redis

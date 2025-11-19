@@ -30,10 +30,23 @@ async function fetchJSON(url: string, opts: RequestInit = {}) {
   return res.json();
 }
 
-export async function getPortfolioSummary(): Promise<any> {
-  return fetchJSON(`${API_BASE}/investments/summary`);
-}
+export async function getPortfolioSummary() {
+  const token = localStorage.getItem("token");
 
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/investments/summary`, {
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    throw new Error(`Error ${res.status}`);
+  }
+
+  return res.json();
+}
 export async function getInvestments(): Promise<any> {
   return fetchJSON(`${API_BASE}/investments`);
 }
