@@ -14,7 +14,7 @@ class RefreshToken(Base):
     token_hash = Column(String(256), nullable=False, index=True, unique=True)
 
     # Expiration date of the refresh token (UTC)
-    expires_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    expires_at = Column(DateTime(timezone=True), nullable=False)
 
     # Metadata
     user_agent = Column(String(256), nullable=True)

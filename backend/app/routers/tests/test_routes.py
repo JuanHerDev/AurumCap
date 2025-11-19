@@ -6,9 +6,9 @@ router = APIRouter(
     tags=["Tests"]
 )
 
-@router.get("/test-error")
-async def test_error():
-    raise RuntimeError("Simulated backend error for Discord alert testing")
+def test_error(client):
+    response = client.get("/test-error")
+    assert response.status_code == 500
 
 @router.get("/test-slow")
 async def test_slow():

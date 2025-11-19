@@ -1,7 +1,7 @@
 import os
 import aiohttp
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,7 +27,7 @@ async def send_discord_alert(title: str, message: str, level: str = "info"):
         "title": f"🚨 {title}",
         "description": message,
         "color": colors.get(level, 0x3498db),
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
     async with aiohttp.ClientSession() as session:

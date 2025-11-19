@@ -1,8 +1,9 @@
 "use client";
 
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
-import { useState } from "react";
 import { FaBookOpen, FaCalculator, FaBriefcase } from "react-icons/fa";
+import { useState } from "react";
+import { useAuth } from "@/features/auth/context/AuthProvider";
 
 const data = [
   { name: "Ene", value: 11000 },
@@ -15,13 +16,14 @@ const data = [
 
 export default function Dashboard() {
   const [period, setPeriod] = useState("1M");
+  const { user } = useAuth();
 
   return (
     <main className="min-h-screen bg-black text-white px-4 py-6 flex flex-col items-center lg:px-20">
       {/* Header */}
       <header className="w-full max-w-5xl mb-6">
         <h1 className="text-xl font-semibold">
-          Hola, <span className="text-yellow-400">Alex 👋</span>
+         👋 Hola, <span className="text-yellow-400">{user?.full_name || "Usuario"}</span>
         </h1>
       </header>
 

@@ -3,7 +3,12 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.db.database import Base
+from typing import TYPE_CHECKING
 import enum
+
+# For type-checkers / IDEs only (prevents runtime circular import)
+if TYPE_CHECKING:
+    from app.models.investment import Investment  # noqa: F401
 
 # Enum for authentication providers
 class AuthProviderEnum(enum.Enum):
@@ -25,14 +30,35 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=True) # It could be null for Google or Apple sign-ins
+    hashed_password = Column(String, nullable=True)  # It could be null for Google or Apple sign-ins
     full_name = Column(String, nullable=True)
-    auth_provider = Column(Enum(AuthProviderEnum), default=AuthProviderEnum.local, nullable=False) # local, google, apple, etc.
+    auth_provider = Column(Enum(AuthProviderEnum, native_enum=False), default=AuthProviderEnum.local, nullable=False)
     picture_url = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
-    role = Column(Enum(UserRole), default=UserRole.investor, nullable=False)
+    role = Column(Enum(UserRole, native_enum=False), default=UserRole.investor, nullable=False)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
+
+
     # Relationship with tokens
-    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+    refresh_tokens = relationship(
+        "RefreshToken",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    # Use fully-qualified string for Investment to avoid import-order issues
+    investments = relationship(
+        "app.models.investment.Investment",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )

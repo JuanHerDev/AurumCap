@@ -123,9 +123,8 @@ async def login(
     access_token = utils.create_access_token(subject=db_user.id)
 
     # Create refresh token and save hash in DB
-    raw_refresh = utils.create_refresh_token(subject=db_user.id)
+    raw_refresh, expires_at = utils.create_refresh_token(subject=db_user.id)
     hashed = utils.hash_token(raw_refresh)
-    expires_at = datetime.now(timezone.utc) + timedelta(days=utils.REFRESH_TOKEN_EXPIRE_DAYS)
     rt = RefreshToken(
         user_id=db_user.id,
         token_hash=hashed,

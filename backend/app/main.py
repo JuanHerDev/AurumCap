@@ -1,9 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.db.database import Base, engine
+
+# Import Models
+from app.models.user import User
+from app.models.investment import Investment
+from app.models.platform import Platform
+
 from app.routers.auth import auth as auth_routes
 from app.routers.auth import oauth_google as oauth_google_routes
-from app.routers.tests import test_routes as test_routes
+from app.routers import investments
+
 from app.middleware.security_logger import SecutiryLoggerMiddleware
 from app.middleware.alert_middleware import AlertMiddleware
 from app.core.redis_client import connect_redis, close_redis
@@ -44,7 +51,7 @@ app.add_middleware(
 app.include_router(auth_routes.router)
 app.include_router(oauth_google_routes.router)
 app.include_router(users.router)
-app.include_router(test_routes.router)
+app.include_router(investments.router)
 
 app.add_middleware(SecutiryLoggerMiddleware)
 app.add_middleware(AlertMiddleware)
