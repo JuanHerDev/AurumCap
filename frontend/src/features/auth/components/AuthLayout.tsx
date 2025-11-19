@@ -19,7 +19,7 @@ export default function AuthLayout({
     <main className="min-h-screen w-full flex flex-col md:flex-row bg-gray-50">
       {/* IMAGE LEFT (desktop) */}
       {imagePosition === "left" && (
-        <section className="hidden md:flex w-1/2 items-center justify-center bg-white border-r border-gray-200">
+        <section className="hidden md:flex w-1/2 items-center justify-center bg-[#0b0b0b] border-r border-gray-200">
           <img
             src={sideImage}
             alt="Auth illustration"
@@ -39,7 +39,7 @@ export default function AuthLayout({
           </div>
 
           {/* DESKTOP HEADER */}
-          <div className="hidden md:block mb-6 text-left">
+          <div className="hidden md:block mb-6 text-center">
             <h1 className="text-3xl md:text-4xl font-bold text-[#d4af37]">{title}</h1>
             {subtitle && <p className="text-gray-500 mt-2">{subtitle}</p>}
           </div>
