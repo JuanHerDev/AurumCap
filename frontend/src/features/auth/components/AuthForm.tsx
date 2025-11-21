@@ -5,10 +5,10 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { loginSchema, registerSchema } from "@/features/auth/validations/authSchemas";
 import { z } from "zod";
-import { loginRequest, registerRequest } from "@/features/auth/services/auth.service";
 import { useRouter } from "next/navigation";
 import GoogleButton from "@/features/auth/components/GoogleButton";
 import { Eye, EyeOff, Mail, Lock } from "lucide-react";
+import { useAuth } from "@/features/auth/context/AuthProvider";
 
 type Mode = "login" | "register";
 
@@ -20,7 +20,10 @@ export default function AuthForm({ mode }: Props) {
   const router = useRouter();
   const schema = mode === "login" ? loginSchema : registerSchema;
 
+  const { login, register: registerUser } = useAuth();
+
   type FormValues = z.infer<typeof loginSchema> & Partial<z.infer<typeof registerSchema>>;
+
   const {
     register,
     handleSubmit,
@@ -32,14 +35,12 @@ export default function AuthForm({ mode }: Props) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  const onSubmit = async (data: any) => {
+  const onSubmit = async (data: FormValues) => {
     try {
       if (mode === "login") {
-        await loginRequest(data.email, data.password);
-        router.push("/dashboard");
+        await login(data.email, data.password);
       } else {
-        await registerRequest(data.email, data.password);
-        router.push("/login");
+        await registerUser(data.email, data.password, data.full_name);
       }
     } catch (err: any) {
       alert(err?.response?.data?.detail || "Error al procesar la solicitud");
@@ -49,23 +50,24 @@ export default function AuthForm({ mode }: Props) {
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4 w-full">
       {/* Email */}
-      <div className="h-2"></div>
       <div>
-        <label className="block text-center font-semibold text-gray-700 mb-1">Correo electrónico</label>
+        <label className="block text-center font-semibold text-gray-700 mb-1">
+          Correo electrónico
+        </label>
         <div className="relative">
           <Mail className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
           <input
             type="email"
             {...register("email")}
             placeholder="tu.correo@ejemplo.com"
-            className="w-full pl-10 pr-3 py-3 border border-gray-600 rounded-xl shadow-lg bg-gray-800 focus:outline-none focus:ring-2 focus:ring-yellow-600 transition text-sm !text-gray-800"
+            className="w-full pl-10 pr-3 py-3 border border-gray-600 rounded-xl shadow-lg bg-gray-800
+              focus:outline-none focus:ring-2 focus:ring-yellow-600 transition text-sm text-gray-800"
           />
         </div>
         {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>}
       </div>
 
       {/* Password */}
-      <div className="h-2"></div>
       <div>
         <label className="block text-center font-semibold text-gray-700 mb-1">Contraseña</label>
         <div className="relative">
@@ -74,13 +76,13 @@ export default function AuthForm({ mode }: Props) {
             type={showPassword ? "text" : "password"}
             {...register("password")}
             placeholder="Ingresa tu contraseña"
-            className="w-full pl-10 pr-10 py-3 border border-gray-200 rounded-xl shadow-sm bg-white focus:outline-none focus:ring-2 focus:ring-yellow-300 transition text-sm !text-gray-800"
+            className="w-full pl-10 pr-10 py-3 border border-gray-200 rounded-xl shadow-sm bg-white
+              focus:outline-none focus:ring-2 focus:ring-yellow-300 transition text-sm text-gray-800"
           />
           <button
             type="button"
             onClick={() => setShowPassword(!showPassword)}
             className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600"
-            aria-label="mostrar contraseña"
           >
             {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
@@ -88,7 +90,7 @@ export default function AuthForm({ mode }: Props) {
         {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>}
       </div>
 
-      {/* Confirm Password (register) */}
+      {/* Confirm password */}
       {mode === "register" && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Confirmar contraseña</label>
@@ -98,18 +100,20 @@ export default function AuthForm({ mode }: Props) {
               type={showConfirm ? "text" : "password"}
               {...register("confirmPassword")}
               placeholder="Confirma tu contraseña"
-              className="w-full pl-10 pr-10 py-3 border border-gray-200 rounded-xl shadow-sm bg-white focus:outline-none focus:ring-2 focus:ring-yellow-300 transition text-sm"
+              className="w-full pl-10 pr-10 py-3 border border-gray-200 rounded-xl shadow-sm bg-white
+                focus:outline-none focus:ring-2 focus:ring-yellow-300 transition text-sm"
             />
             <button
               type="button"
               onClick={() => setShowConfirm(!showConfirm)}
               className="absolute right-3 top-3.5 text-gray-800 hover:text-gray-800"
-              aria-label="mostrar confirmar contraseña"
             >
-              {showConfirm ? <EyeOff size={18}  /> : <Eye size={18} />}
+              {showConfirm ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>
           </div>
-          {errors.confirmPassword && <p className="text-red-500 text-xs mt-1">{errors.confirmPassword.message}</p>}
+          {errors.confirmPassword && (
+            <p className="text-red-500 text-xs mt-1">{errors.confirmPassword.message}</p>
+          )}
         </div>
       )}
 
@@ -117,7 +121,8 @@ export default function AuthForm({ mode }: Props) {
       <button
         type="submit"
         disabled={isSubmitting}
-        className="w-full bg-[#d4af37] hover:bg-[#c09c32] active:scale-95 !text-gray-600 font-semibold py-3 rounded-xl transition-all shadow-sm"
+        className="w-full bg-[#d4af37] hover:bg-[#c09c32] active:scale-95 text-gray-600
+          font-semibold py-3 rounded-xl transition-all shadow-sm"
       >
         {isSubmitting ? "Procesando..." : mode === "login" ? "Iniciar sesión" : "Registrarme"}
       </button>
@@ -129,7 +134,6 @@ export default function AuthForm({ mode }: Props) {
         <div className="h-px bg-gray-300 w-1/3" />
       </div>
 
-      {/* Google */}
       <GoogleButton />
 
       {/* Toggle */}

@@ -113,7 +113,7 @@ def google_callback(code: str, db: Session = Depends(get_db)):
         httponly=True,
         secure=settings.IS_PROD,
         samesite="none" if settings.IS_PROD else "lax",
-        path=settings.REFRESH_COOKIE_PATH,
+        path="/",
         expires=int((expires_at - datetime.now(timezone.utc)).total_seconds()),
     )
 

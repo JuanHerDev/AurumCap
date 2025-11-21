@@ -4,6 +4,9 @@ export type LoginResponse = { access_token: string; token_type: string };
 
 export async function loginRequest(email: string, password: string) {
     const res = await api.post<LoginResponse>("/auth/login", { email, password });
+
+    console.log("LOGIN RESPONSE:", res.data);
+
     const token = res.data?.access_token;
 
     if (token) setAccessToken(token); // Store in sessionStorage

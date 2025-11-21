@@ -1,7 +1,15 @@
 "use client";
+
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { loginRequest, registerRequest, logoutRequest, meRequest } from "@/features/auth/services/auth.service";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
+
+import {
+  loginRequest,
+  registerRequest,
+  logoutRequest,
+  meRequest,
+} from "@/features/auth/services/auth.service";
+
 import { setAccessToken, getAccessToken } from "@/lib/api";
 
 type User = {
@@ -26,20 +34,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const pathname = usePathname();
 
-  // Inicializar sesión
+
   async function bootstrap() {
     setLoading(true);
+
     try {
       const token = getAccessToken();
+
       if (token) {
-        const data = await meRequest();
-        setUser(data);
+        const userData = await meRequest();
+        setUser(userData);
       } else {
         setUser(null);
       }
-    } catch (e) {
+    } catch (error) {
+      console.warn("Bootstrap failed:", error);
       setUser(null);
+      setAccessToken(null);
     } finally {
       setLoading(false);
     }
@@ -49,51 +62,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     bootstrap();
   }, []);
 
+
   const login = async (email: string, password: string) => {
-    try {
-      const res = await loginRequest(email, password);
-      const token = res.access_token;
-      if (token) setAccessToken(token);
+    const res = await loginRequest(email, password);
 
-      await refreshUser();
-      router.push("/dashboard");
-    } catch (err) {
-      throw err;
-    }
-  };
-
-  const register = async (email: string, password: string, name?: string) => {
-    const res = await registerRequest(email, password, name);
-    const token = res.access_token;
-    if (token) setAccessToken(token);
+    if (res?.access_token) setAccessToken(res.access_token);
 
     await refreshUser();
     router.push("/dashboard");
   };
 
-  const logout = async () => {
-    try {
-      await logoutRequest();
-    } finally {
-      setAccessToken(null);
-      setUser(null);
-      router.push("/login");
-    }
+
+  const register = async (
+    email: string,
+    password: string,
+    name?: string
+  ) => {
+    const res = await registerRequest(email, password, name);
+
+    if (res?.access_token) setAccessToken(res.access_token);
+
+    await refreshUser();
+    router.push("/dashboard");
   };
+
 
   const refreshUser = async () => {
     try {
       const data = await meRequest();
       setUser(data);
-    } catch (e) {
+    } catch (err) {
+      console.warn("refreshUser error:", err);
       setUser(null);
       setAccessToken(null);
-      throw e;
+      throw err;
     }
   };
 
+
+  const logout = async () => {
+    try {
+      await logoutRequest();
+    } catch (_) {}
+
+    setUser(null);
+    setAccessToken(null);
+    router.push("/login");
+  };
+
+
+  const protectedRoutes = ["/dashboard", "/profile", "/investments"];
+  const isProtected = protectedRoutes.some((r) => pathname.startsWith(r));
+
+  useEffect(() => {
+    if (!loading && isProtected && !user) {
+      router.push("/login");
+    }
+  }, [loading, user, pathname]);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser }}>
+    <AuthContext.Provider
+      value={{ user, loading, login, register, logout, refreshUser }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -101,6 +131,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be inside AuthProvider");
+  if (!ctx) throw new Error("useAuth must be used inside AuthProvider");
   return ctx;
 }
