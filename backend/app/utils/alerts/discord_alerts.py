@@ -34,6 +34,6 @@ async def send_discord_alert(title: str, message: str, level: str = "info"):
         try:
             async with session.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]}) as resp:
                 if resp.status != 204:
-                    logging.error(f"❌ Error sending Discord alert: {resp.status}")
+                    logging.error(f"Error sending Discord alert: {resp.status}")
         except Exception as e:
-            logging.error(f"❌ Exception sending Discord alert: {str(e)}")
+            logging.error(f"Exception sending Discord alert: {str(e)}")

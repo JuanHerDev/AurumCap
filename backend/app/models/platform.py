@@ -7,6 +7,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 from app.db.database import Base
+from sqlalchemy.sql import func
 from datetime import datetime, timezone
 import enum
 
@@ -40,14 +41,14 @@ class Platform(Base):
 
     created_at = Column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+        default=func.now(),
         nullable=False,
     )
 
     updated_at = Column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=func.now(),
+        onupdate=func.now(),
         nullable=False,
     )
 

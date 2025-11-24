@@ -34,7 +34,7 @@ DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("SQLALCHEMY_DATABASE_URL")
 
 # --- Validate that the URL exists ---
 if not DATABASE_URL:
-    raise ValueError("❌ DATABASE_URL is not defined. Check your .env or environment variables.")
+    raise ValueError("DATABASE_URL is not defined. Check your .env or environment variables.")
 
 # --- Force Alembic to use this database URL ---
 config.set_main_option("sqlalchemy.url", DATABASE_URL)

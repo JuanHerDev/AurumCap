@@ -39,8 +39,29 @@ router = APIRouter(
 
 
 class PortfolioCalculator:
-    """Enhanced portfolio calculation with concurrent processing"""
+    """Enhanced portfolio calculation with created_at as acquisition date"""
     
+    @staticmethod
+    def calculate_holding_period(inv: Investment) -> int:
+        """
+        Calculate days the investment has been held
+        Uses created_at as acquisition date
+        """
+        from datetime import datetime
+        if not inv.created_at:
+            return 1
+        
+        # Asegurar que ambas fechas sean naive para la comparación
+        current_time = datetime.utcnow()
+        acquisition_date = inv.created_at
+        
+        # Si created_at tiene timezone, convertirlo a naive
+        if acquisition_date.tzinfo is not None:
+            acquisition_date = acquisition_date.replace(tzinfo=None)
+        
+        days_held = (current_time - acquisition_date).days
+        return max(days_held, 1)  # Mínimo 1 día
+
     @staticmethod
     async def _get_asset_price(inv: Investment) -> Decimal:
         """
@@ -80,8 +101,17 @@ class PortfolioCalculator:
                 except Exception as e:
                     logger.warning(f"Could not get fundamentals for {inv.symbol}: {e}")
             
+            # Calculate metrics
             gain_loss = current_value - invested_amount
             roi = (gain_loss / invested_amount * Decimal("100")) if invested_amount > 0 else Decimal("0")
+            
+            # Calculate holding period
+            holding_days = PortfolioCalculator.calculate_holding_period(inv)
+            
+            # Calculate annualized ROI
+            annualized_roi = Decimal("0")
+            if holding_days > 1 and gain_loss > 0:
+                annualized_roi = ((1 + (gain_loss / invested_amount)) ** (Decimal("365") / Decimal(str(holding_days))) - 1) * Decimal("100")
             
             return {
                 "id": inv.id,
@@ -95,9 +125,11 @@ class PortfolioCalculator:
                 "current_value": current_value,
                 "gain_loss": gain_loss,
                 "roi_percentage": roi,
+                "holding_days": holding_days,
+                "annualized_roi": annualized_roi,
+                "acquisition_date": inv.created_at.date().isoformat() if inv.created_at else None,
                 "currency": inv.currency,
                 "fundamentals": fundamentals,
-                "date_acquired": inv.date_acquired,
                 "platform_id": inv.platform_id,
                 "error": None
             }
@@ -115,6 +147,9 @@ class PortfolioCalculator:
                 "current_value": Decimal("0"),
                 "gain_loss": -Decimal(str(inv.invested_amount)),
                 "roi_percentage": Decimal("-100"),
+                "holding_days": 1,
+                "annualized_roi": Decimal("0"),
+                "acquisition_date": None,
                 "currency": inv.currency,
                 "fundamentals": {},
                 "error": str(e)
@@ -221,7 +256,7 @@ class PortfolioCalculator:
 async def investments_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    asset_type: Optional[str] = Query(None, description="Filter by asset type")  # ✅ CAMBIADO: AssetType -> str
+    asset_type: Optional[str] = Query(None, description="Filter by asset type")
 ):
     """
     Get comprehensive portfolio summary with concurrent price fetching
@@ -245,12 +280,13 @@ async def investments_summary(
             detail="Error generating portfolio summary"
         )
 
+
 @router.post(
     "",
     response_model=InvestmentOut,
     status_code=status.HTTP_201_CREATED,
     summary="Create Investment",
-    description="Create a new investment with automatic purchase price calculation"
+    description="Create a new investment - uses created_at as acquisition date"
 )
 def create_inv(
     payload: InvestmentCreate,
@@ -258,44 +294,36 @@ def create_inv(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Create a new investment - CON DEBUG MEJORADO
+    Create a new investment - VERSIÓN SIMPLIFICADA MVP
     """
     try:
         logger.info(f"🔄 Creating investment for user {current_user.id}")
-        logger.info(f"📦 Investment data: {payload.model_dump()}")
         
-        # ✅ DEBUG DETALLADO: Verificar date_acquired
-        if payload.date_acquired:
-            logger.info(f"📅 date_acquired: {payload.date_acquired}")
-            logger.info(f"📅 date_acquired type: {type(payload.date_acquired)}")
-            logger.info(f"📅 date_acquired tzinfo: {payload.date_acquired.tzinfo}")
-        else:
-            logger.info("📅 date_acquired: None (will use current time)")
-        
+
         result = create_investment(db, current_user.id, payload)
-        logger.info(f"✅ Investment created successfully: {result.id}")
+        
+        logger.info(f"Investment created successfully: {result.id}")
         return result
         
     except ValidationError as e:
-        logger.warning(f"❌ Validation error creating investment: {e}")
+        logger.warning(f"Validation error: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except InvestmentCRUDError as e:
-        logger.error(f"❌ CRUD error creating investment: {e}")
+        logger.error(f"CRUD error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create investment"
         )
     except Exception as e:
-        # ✅ CAPTURAR EL ERROR REAL CON DETALLES
-        logger.error(f"💥 UNEXPECTED ERROR in create_investment: {str(e)}")
-        logger.error(f"💥 Error type: {type(e)}")
-        logger.error(f"💥 Traceback: {traceback.format_exc()}")
+        logger.error(f"Unexpected error: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error creating investment: {str(e)}"
+            detail=f"Unexpected error: {str(e)}"
         )
 
 
@@ -308,7 +336,7 @@ def create_inv(
 def read_investments(
     skip: int = Query(0, ge=0, description="Number of items to skip"),
     limit: int = Query(100, ge=1, le=1000, description="Number of items to return"),
-    asset_type: Optional[str] = Query(None, description="Filter by asset type"),  # ✅ CAMBIADO: AssetType -> str
+    asset_type: Optional[str] = Query(None, description="Filter by asset type"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -426,6 +454,8 @@ def remove_investment(
         )
 
 
+# ==================== ENDPOINTS DE DEBUG (MANTENER) ====================
+
 @router.post(
     "/test-simple",
     response_model=InvestmentOut,
@@ -437,33 +467,12 @@ def test_create_simple(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Test endpoint for creating a simple investment - CON DEBUG EXTREMO
+    Test endpoint for creating a simple investment
     """
     try:
-        print("🔍 [1] EXTREME DEBUG: Starting test-simple")
+        print("🔍 [TEST SIMPLE] Starting test...")
         
-        # Crear un objeto simple que simule los datos
-        class TestData:
-            def __init__(self):
-                self.symbol = "TEST"
-                self.asset_name = "Test Asset" 
-                self.asset_type = "other"
-                self.invested_amount = Decimal("1000")
-                self.quantity = Decimal("10")
-                self.currency = "USD"
-                self.platform_id = None
-                self.purchase_price = None
-                self.date_acquired = None
-                self.coingecko_id = None
-                self.twelvedata_id = None
-        
-        test_data = TestData()
-        print("🔍 [2] TestData object created")
-        
-        # ✅ INTENTAR CREAR LA INVERSIÓN DIRECTAMENTE, SIN EL CRUD
-        print("🔍 [3] Attempting to create Investment object directly")
-        
-        from datetime import datetime
+        from decimal import Decimal
         from app.models.investment import Investment
         
         # Crear la inversión directamente
@@ -477,44 +486,20 @@ def test_create_simple(
             quantity=Decimal("10"),
             purchase_price=Decimal("100"),
             currency="USD",
-            date_acquired=datetime.utcnow(),  # naive datetime
-            # created_at y updated_at se generan automáticamente
+            # date_acquired eliminado - created_at se genera automáticamente
         )
         
-        print("🔍 [4] Investment object created successfully")
-        print(f"🔍 [5] date_acquired: {investment.date_acquired}")
-        print(f"🔍 [6] date_acquired type: {type(investment.date_acquired)}")
-        print(f"🔍 [7] date_acquired tzinfo: {investment.date_acquired.tzinfo}")
-        
-        print("🔍 [8] Adding investment to database session")
         db.add(investment)
-        
-        print("🔍 [9] Committing transaction")
         db.commit()
-        
-        print("🔍 [10] Refreshing investment")
         db.refresh(investment)
         
-        print(f"✅ [SUCCESS] Test investment created: {investment.id}")
+        print(f"[TEST SIMPLE] Test investment created: {investment.id}")
         return investment
         
     except Exception as e:
-        print(f"💥 [ERROR] Exception type: {type(e)}")
-        print(f"💥 [ERROR] Exception message: {str(e)}")
-        
-        # ✅ CAPTURAR EL TRACEBACK COMPLETO PARA VER DÓNDE ESTÁ LA COMPARACIÓN
+        print(f"[TEST SIMPLE] Error: {str(e)}")
         import traceback
-        tb = traceback.format_exc()
-        print(f"💥 [TRACEBACK] Full traceback:\n{tb}")
-        
-        # Buscar en el traceback dónde está la comparación de fechas
-        if "offset-naive and offset-aware" in str(e):
-            print("🚨 [TIMEZONE ISSUE] Found the timezone comparison error!")
-            # Imprimir las líneas relevantes del traceback
-            for line in tb.split('\n'):
-                if "datetime" in line or "compare" in line or "investment" in line.lower():
-                    print(f"🔍 [RELEVANT] {line}")
-        
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Test failed: {str(e)}"
@@ -533,7 +518,7 @@ def test_raw_sql(
         
         from sqlalchemy import text
         
-        # Ejecutar SQL directo
+        # Ejecutar SQL directo SIN date_acquired
         result = db.execute(
             text("""
                 INSERT INTO investments 
@@ -557,7 +542,7 @@ def test_raw_sql(
         investment_id = result.scalar()
         db.commit()
         
-        print(f"✅ [RAW SQL SUCCESS] Investment {investment_id} created via raw SQL")
+        print(f"[RAW SQL SUCCESS] Investment {investment_id} created via raw SQL")
         
         # Recuperar la inversión creada
         investment = db.query(Investment).filter(Investment.id == investment_id).first()
@@ -565,9 +550,9 @@ def test_raw_sql(
         
     except Exception as e:
         db.rollback()
-        print(f"💥 [RAW SQL ERROR] {str(e)}")
+        print(f"[RAW SQL ERROR] {str(e)}")
         import traceback
-        print(f"💥 [RAW SQL TRACEBACK] {traceback.format_exc()}")
+        print(f"[RAW SQL TRACEBACK] {traceback.format_exc()}")
         raise HTTPException(500, f"Raw SQL test failed: {str(e)}")
     
 
@@ -577,12 +562,12 @@ def test_identify_field(
     current_user: User = Depends(get_current_user)
 ):
     """
-    TEST para identificar qué campo específico causa el error de timezone
+    TEST para identificar campos de fecha
     """
     try:
         print("🔍 [FIELD ID] Starting field identification test")
         
-        # Crear inversión via SQL directo (sabemos que funciona)
+        # Crear inversión via SQL directo
         from sqlalchemy import text
         result = db.execute(
             text("""
@@ -607,23 +592,13 @@ def test_identify_field(
         investment_id = result.scalar()
         db.commit()
         
-        print(f"✅ [FIELD ID] Investment {investment_id} created")
+        print(f"[FIELD ID] Investment {investment_id} created")
         
         # Recuperar la inversión
         investment = db.query(Investment).filter(Investment.id == investment_id).first()
         
-        # ✅ TEST INDIVIDUAL DE CADA CAMPO DE FECHA
-        print("🔍 [FIELD ID] Testing individual date fields:")
-        
-        # Probar date_acquired
-        try:
-            print(f"🔍 Testing date_acquired: {investment.date_acquired}")
-            print(f"🔍 date_acquired type: {type(investment.date_acquired)}")
-            print(f"🔍 date_acquired tzinfo: {investment.date_acquired.tzinfo}")
-            _ = investment.date_acquired.isoformat()  # Esto podría causar la comparación
-            print("✅ date_acquired OK")
-        except Exception as e:
-            print(f"❌ date_acquired ERROR: {e}")
+        # TEST INDIVIDUAL DE CAMPOS DE FECHA
+        print("🔍 [FIELD ID] Testing date fields:")
         
         # Probar created_at
         try:
@@ -631,9 +606,9 @@ def test_identify_field(
             print(f"🔍 created_at type: {type(investment.created_at)}")
             print(f"🔍 created_at tzinfo: {investment.created_at.tzinfo}")
             _ = investment.created_at.isoformat()
-            print("✅ created_at OK")
+            print("created_at OK")
         except Exception as e:
-            print(f"❌ created_at ERROR: {e}")
+            print(f" created_at ERROR: {e}")
         
         # Probar updated_at
         try:
@@ -641,17 +616,17 @@ def test_identify_field(
             print(f"🔍 updated_at type: {type(investment.updated_at)}")
             print(f"🔍 updated_at tzinfo: {investment.updated_at.tzinfo}")
             _ = investment.updated_at.isoformat()
-            print("✅ updated_at OK")
+            print("updated_at OK")
         except Exception as e:
-            print(f"❌ updated_at ERROR: {e}")
+            print(f"updated_at ERROR: {e}")
         
-        print("✅ [FIELD ID] All fields tested individually")
+        print("[FIELD ID] All fields tested individually")
         return investment
         
     except Exception as e:
-        print(f"💥 [FIELD ID ERROR] {str(e)}")
+        print(f"[FIELD ID ERROR] {str(e)}")
         import traceback
-        print(f"💥 [FIELD ID TRACEBACK] {traceback.format_exc()}")
+        print(f"[FIELD ID TRACEBACK] {traceback.format_exc()}")
         raise HTTPException(500, f"Field ID test failed: {str(e)}")
 
 @router.post("/test-manual-response")
@@ -660,7 +635,7 @@ def test_manual_response(
     current_user: User = Depends(get_current_user)
 ):
     """
-    TEST que retorna una respuesta MANUAL, evitando la serialización automática
+    TEST que retorna una respuesta MANUAL
     """
     try:
         print("🔍 [MANUAL RESPONSE] Starting manual response test")
@@ -690,9 +665,9 @@ def test_manual_response(
         investment_id = result.scalar()
         db.commit()
         
-        print(f"✅ [MANUAL RESPONSE] Investment {investment_id} created")
+        print(f"[MANUAL RESPONSE] Investment {investment_id} created")
         
-        # ✅ RETORNAR RESPUESTA MANUAL, EVITANDO LA SERIALIZACIÓN AUTOMÁTICA
+        # RETORNAR RESPUESTA MANUAL
         manual_response = {
             "id": investment_id,
             "user_id": current_user.id,
@@ -703,18 +678,17 @@ def test_manual_response(
             "quantity": "10.0", 
             "purchase_price": "10.0",
             "currency": "USD",
-            "date_acquired": None,  # Omitir las fechas problemáticas
-            "created_at": None,
+            # created_at se incluye como fecha de adquisición
+            "created_at": None,  # Se llenará automáticamente
             "updated_at": None,
             "platform_id": None,
             "coingecko_id": None,
             "twelvedata_id": None
         }
         
-        print("✅ [MANUAL RESPONSE] Returning manual response (no serialization)")
+        print("[MANUAL RESPONSE] Returning manual response")
         return manual_response
         
     except Exception as e:
-        print(f"💥 [MANUAL RESPONSE ERROR] {str(e)}")
+        print(f"[MANUAL RESPONSE ERROR] {str(e)}")
         raise HTTPException(500, f"Manual response test failed: {str(e)}")
-    

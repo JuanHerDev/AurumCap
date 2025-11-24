@@ -20,7 +20,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    # ✅ CAMBIAR COLUMNAS DE TIMESTAMP WITH TIME ZONE A TIMESTAMP WITHOUT TIME ZONE
+    # CAMBIAR COLUMNAS DE TIMESTAMP WITH TIME ZONE A TIMESTAMP WITHOUT TIME ZONE
     
     # Para la tabla investments
     op.alter_column('investments', 'date_acquired',
@@ -88,7 +88,7 @@ def upgrade() -> None:
         print("⚠️  refresh_tokens table or columns not found, skipping...")
         pass
     
-    # ✅ AGREGAR/ACTUALIZAR DEFAULTS PARA CONSISTENCIA
+    # AGREGAR/ACTUALIZAR DEFAULTS PARA CONSISTENCIA
     op.execute("""
         ALTER TABLE investments 
         ALTER COLUMN date_acquired SET DEFAULT NOW(),

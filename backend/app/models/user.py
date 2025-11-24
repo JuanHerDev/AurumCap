@@ -37,12 +37,12 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     role = Column(Enum(UserRole, native_enum=False), default=UserRole.investor, nullable=False)
 
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     updated_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        DateTime,
+        server_default=func.now(),
+        onupdate=func.now(),
         nullable=False
     )
 

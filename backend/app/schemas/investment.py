@@ -8,16 +8,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# --------------------------
 # CONSTANTS
-# --------------------------
 SYMBOL_REGEX = re.compile(r"^[A-Za-z0-9\.\-\_]{1,64}$")
 MAX_DECIMAL_DIGITS = 28
 MAX_DECIMAL_PLACES = 10
 
-# --------------------------
 # DECIMAL SERIALIZER
-# --------------------------
 def clean_decimal(v: Decimal) -> str:
     """
     Safe decimal serialization with rounding for JSON compatibility
@@ -35,9 +31,7 @@ def clean_decimal(v: Decimal) -> str:
         logger.error(f"Error serializing decimal {v}: {e}")
         return str(v)
 
-# --------------------------
 # ENUMS
-# --------------------------
 class AssetType(str, Enum):
     crypto = "crypto"
     stock = "stock"
@@ -60,46 +54,14 @@ class InvestmentStatus(str, Enum):
     sold = "sold"
     closed = "closed"
 
-# --------------------------
-# FIELD TYPES WITH VALIDATION
-# --------------------------
-class SymbolStr(str):
-    """
-    Custom string type for investment symbols with validation
-    """
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
-
-    @classmethod
-    def validate(cls, v):
-        if not isinstance(v, str):
-            raise ValueError('Symbol must be a string')
-        
-        v = v.strip()
-        if not v:
-            raise ValueError('Symbol cannot be empty')
-            
-        if len(v) > 64:
-            raise ValueError('Symbol cannot exceed 64 characters')
-            
-        if not SYMBOL_REGEX.fullmatch(v):
-            raise ValueError(
-                'Invalid symbol format. Only letters, numbers, dots, hyphens, and underscores are allowed'
-            )
-            
-        return cls(v.upper())
-
-# --------------------------
 # BASE MODEL
-# --------------------------
 class InvestmentBase(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
         str_strip_whitespace=True,
         json_encoders={Decimal: clean_decimal},
         validate_assignment=True,
-        extra='forbid'  # Prevent extra fields
+        extra='forbid'
     )
 
     # Core investment fields
@@ -151,10 +113,6 @@ class InvestmentBase(BaseModel):
         description="Currency of the investment"
     )
     
-    date_acquired: Optional[datetime] = Field(
-        None,
-        description="Date when asset was acquired"
-    )
 
     # Field validators
     @field_validator('symbol', mode='before')
@@ -202,32 +160,6 @@ class InvestmentBase(BaseModel):
         except (ValueError, TypeError) as e:
             raise ValueError(f"Invalid decimal value: {v}") from e
 
-    @field_validator('date_acquired', mode='before')
-    @classmethod
-    def validate_date_acquired(cls, v):
-        """Validate date_acquired is not in the future"""
-        if v is None:
-            return None
-            
-        if isinstance(v, str):
-            # Try to parse string
-            try:
-                v = datetime.fromisoformat(v.replace('Z', '+00:00'))
-            except ValueError:
-                raise ValueError("Invalid date format. Use ISO format")
-                
-        if isinstance(v, datetime):
-            # Ensure timezone awareness
-            if v.tzinfo is None:
-                v = v.replace(tzinfo=None)  # Make naive
-            # Check if date is in future
-            from datetime import timezone
-            now = datetime.now(timezone.utc).replace(tzinfo=None)
-            if v > now:
-                raise ValueError("Acquisition date cannot be in the future")
-                
-        return v
-
     @model_validator(mode='after')
     def validate_purchase_price_consistency(self):
         """
@@ -259,9 +191,7 @@ class InvestmentBase(BaseModel):
                 
         return self
 
-# --------------------------
 # CREATE MODEL
-# --------------------------
 class InvestmentCreate(InvestmentBase):
     """Schema for creating new investments"""
     
@@ -306,9 +236,7 @@ class InvestmentCreate(InvestmentBase):
             raise ValueError('Platform ID must be positive')
         return v
 
-# --------------------------
 # UPDATE MODEL
-# --------------------------
 class InvestmentUpdate(BaseModel):
     """Schema for updating investments (partial updates)"""
     
@@ -368,10 +296,6 @@ class InvestmentUpdate(BaseModel):
         description="Currency of the investment"
     )
     
-    date_acquired: Optional[datetime] = Field(
-        None,
-        description="Date when asset was acquired"
-    )
     
     platform_id: Optional[int] = Field(
         None,
@@ -402,7 +326,6 @@ class InvestmentUpdate(BaseModel):
     _validate_decimals = field_validator('invested_amount', 'quantity', 'purchase_price', mode='before')(
         InvestmentBase.validate_and_convert_decimal
     )
-    _validate_date = field_validator('date_acquired', mode='before')(InvestmentBase.validate_date_acquired)
 
     @model_validator(mode='after')
     def validate_update_consistency(self):
@@ -436,10 +359,8 @@ class InvestmentUpdate(BaseModel):
         
         return self
 
-# --------------------------
 # RESPONSE MODELS
-# --------------------------
-class InvestmentInDBBase(InvestmentBase):
+class InvestmentInDBBase(BaseModel):
     """Base model for database responses"""
     
     model_config = ConfigDict(
@@ -452,6 +373,20 @@ class InvestmentInDBBase(InvestmentBase):
     id: int = Field(..., description="Unique investment ID")
     user_id: int = Field(..., description="Owner user ID")
     platform_id: Optional[int] = Field(None, description="Platform ID")
+    
+    # Core investment fields
+    asset_type: AssetType = Field(..., description="Type of asset")
+    symbol: str = Field(..., description="Asset symbol/ticker")
+    asset_name: Optional[str] = Field(None, description="Full name of the asset")
+    invested_amount: Decimal = Field(..., description="Total amount invested")
+    quantity: Decimal = Field(..., description="Quantity of asset purchased")
+    purchase_price: Decimal = Field(..., description="Price per unit at purchase")
+    currency: CurrencyEnum = Field(..., description="Currency of the investment")
+    
+    # External IDs
+    coingecko_id: Optional[str] = Field(None, description="CoinGecko API ID")
+    twelvedata_id: Optional[str] = Field(None, description="TwelveData API ID")
+    notes: Optional[str] = Field(None, description="Additional notes")
     
     # Timestamps
     created_at: datetime = Field(..., description="Creation timestamp")
@@ -489,9 +424,7 @@ class InvestmentOut(InvestmentInDBBase):
     class Config:
         json_encoders = {Decimal: clean_decimal}
 
-# --------------------------
 # PORTFOLIO SUMMARY MODELS
-# --------------------------
 class AssetAllocation(BaseModel):
     """Asset allocation data"""
     asset_type: str
@@ -532,61 +465,6 @@ class PortfolioSummary(BaseModel):
         json_encoders={Decimal: clean_decimal}
     )
 
-# --------------------------
-# BULK OPERATIONS
-# --------------------------
-class BulkInvestmentCreate(BaseModel):
-    """Schema for bulk investment creation"""
-    investments: List[InvestmentCreate] = Field(
-        ...,
-        min_items=1,
-        max_items=100,
-        description="List of investments to create"
-    )
-    
-    @field_validator('investments')
-    @classmethod
-    def validate_unique_symbols(cls, v):
-        """Ensure no duplicate symbols in bulk creation"""
-        symbols = [inv.symbol for inv in v]
-        if len(symbols) != len(set(symbols)):
-            raise ValueError('Duplicate symbols in bulk creation')
-        return v
-
-class BulkInvestmentUpdate(BaseModel):
-    """Schema for bulk investment updates"""
-    updates: List[Dict[str, Any]] = Field(
-        ...,
-        min_items=1,
-        max_items=100,
-        description="List of investment updates"
-    )
-
-# --------------------------
-# FILTER AND QUERY MODELS
-# --------------------------
-class InvestmentFilter(BaseModel):
-    """Filters for querying investments"""
-    asset_type: Optional[AssetType] = None
-    currency: Optional[CurrencyEnum] = None
-    platform_id: Optional[int] = None
-    date_from: Optional[datetime] = None
-    date_to: Optional[datetime] = None
-    min_invested: Optional[Decimal] = None
-    max_invested: Optional[Decimal] = None
-    
-    @model_validator(mode='after')
-    def validate_date_range(self):
-        """Validate date range filters"""
-        if self.date_from and self.date_to and self.date_from > self.date_to:
-            raise ValueError('date_from cannot be after date_to')
-        return self
-
-class InvestmentSort(BaseModel):
-    """Sorting options for investments"""
-    field: str = Field(default='date_acquired')
-    order: str = Field(default='desc', pattern='^(asc|desc)$')
-
 # Export all models
 __all__ = [
     'AssetType',
@@ -600,9 +478,5 @@ __all__ = [
     'PortfolioSummary',
     'AssetAllocation',
     'PerformanceMetrics',
-    'BulkInvestmentCreate',
-    'BulkInvestmentUpdate',
-    'InvestmentFilter',
-    'InvestmentSort',
     'clean_decimal'
 ]

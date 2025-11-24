@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional, List, Dict, Any
-from datetime import datetime, timezone
+from datetime import datetime
 import re
 import logging
 
@@ -18,16 +18,13 @@ logger = logging.getLogger(__name__)
 SYMBOL_REGEX = re.compile(r"^[A-Za-z0-9\.\-\_]{1,64}$")
 PROTECTED_FIELDS = {"id", "user_id", "created_at", "updated_at"}
 
-
 class InvestmentCRUDError(Exception):
     """Custom exception for investment CRUD operations"""
     pass
 
-
 class ValidationError(InvestmentCRUDError):
     """Validation error for investment data"""
     pass
-
 
 class PlatformCRUD:
     """Platform CRUD operations"""
@@ -82,9 +79,8 @@ class PlatformCRUD:
             logger.error(f"Database error fetching platform {platform_id}: {e}")
             return None
 
-
 class InvestmentCRUD:
-    """Investment CRUD operations with enhanced validation"""
+    """Investment CRUD operations con created_at como fecha de adquisición"""
     
     @staticmethod
     def validate_symbol(symbol: str) -> str:
@@ -126,10 +122,10 @@ class InvestmentCRUD:
         purchase_price = invested_amount / quantity
         return purchase_price.quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
 
-    @staticmethod  # ✅ AGREGAR ESTA LÍNEA FALTANTE
+    @staticmethod
     def create_investment(db: Session, user_id: int, data) -> Investment:
         """
-        Create a new investment with comprehensive validation
+        Create a new investment - SIMPLIFICADO SIN date_acquired
         """
         try:
             # Validate symbol
@@ -156,15 +152,6 @@ class InvestmentCRUD:
                 if purchase_price <= 0:
                     raise ValidationError("Purchase price must be greater than zero")
 
-            # ✅ CORRECCIÓN DEFINITIVA: Usar datetime.utcnow() sin timezone
-            date_acquired = data.date_acquired
-            if date_acquired is None:
-                date_acquired = datetime.utcnow()  # naive datetime
-            elif date_acquired.tzinfo is not None:
-                # Si viene con timezone, convertirlo a naive
-                date_acquired = date_acquired.replace(tzinfo=None)
-
-            # Create investment
             investment = Investment(
                 user_id=user_id,
                 platform_id=data.platform_id,
@@ -177,7 +164,7 @@ class InvestmentCRUD:
                 currency=data.currency,
                 coingecko_id=data.coingecko_id,
                 twelvedata_id=data.twelvedata_id,
-                date_acquired=date_acquired,  # ✅ Siempre naive datetime
+                notes=getattr(data, 'notes', None),
             )
 
             db.add(investment)
@@ -237,7 +224,7 @@ class InvestmentCRUD:
                 
             return (
                 query
-                .order_by(Investment.date_acquired.desc())
+                .order_by(Investment.created_at.desc())
                 .offset(skip)
                 .limit(limit)
                 .all()
@@ -331,7 +318,6 @@ class InvestmentCRUD:
             db.rollback()
             logger.error(f"Unexpected error deleting investment {inv.id}: {e}")
             raise InvestmentCRUDError("Unexpected error deleting investment")
-
 
 # Backward compatibility functions
 def create_platform(db: Session, name: str, type: Optional[str] = None, description: Optional[str] = None) -> Platform:
