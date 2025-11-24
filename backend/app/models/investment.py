@@ -8,8 +8,9 @@ from sqlalchemy import (
     Enum,
 )
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 from app.db.database import Base
-from datetime import datetime, timezone
+from datetime import datetime  # ✅ SOLO datetime, SIN timezone
 from app.schemas.investment import AssetType, CurrencyEnum
 
 
@@ -53,22 +54,63 @@ class Investment(Base):
         default=CurrencyEnum.USD,
     )
 
+    # ✅ CORREGIDO: DateTime SIN timezone=True y usando func.now() para consistencia
     date_acquired = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+        DateTime,  # ❌ ELIMINAR: timezone=True
+        server_default=func.now(),
         nullable=True,
     )
 
     created_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+        DateTime,  # ❌ ELIMINAR: timezone=True
+        server_default=func.now(),  # ✅ Usar server_default en lugar de lambda
+        nullable=False,
     )
 
     updated_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        DateTime,  # ❌ ELIMINAR: timezone=True
+        server_default=func.now(),  # ✅ Usar server_default
+        onupdate=func.now(),  # ✅ Usar func.now() en lugar de lambda
+        nullable=False,
     )
 
     user = relationship("User", back_populates="investments", passive_deletes=True)
     platform = relationship("Platform", back_populates="investments", passive_deletes=True)
+
+    def __init__(self, **kwargs):
+        """
+        Constructor personalizado para asegurar que los timestamps se establezcan correctamente
+        """
+        # ✅ Asegurar que los timestamps tengan valores si no se proporcionan
+        from datetime import datetime
+        
+        # Si date_acquired no se proporciona, usar None (la BD usará server_default)
+        if 'date_acquired' not in kwargs:
+            kwargs['date_acquired'] = None
+            
+        # created_at y updated_at se manejan automáticamente por server_default
+        # No necesitamos establecerlos aquí
+        
+        super().__init__(**kwargs)
+    
+    def to_dict(self):
+        """
+        Método auxiliar para convertir a dict evitando problemas de serialización
+        """
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "platform_id": self.platform_id,
+            "asset_type": self.asset_type.value if self.asset_type else None,
+            "symbol": self.symbol,
+            "coingecko_id": self.coingecko_id,
+            "twelvedata_id": self.twelvedata_id,
+            "asset_name": self.asset_name,
+            "invested_amount": float(self.invested_amount) if self.invested_amount else None,
+            "quantity": float(self.quantity) if self.quantity else None,
+            "purchase_price": float(self.purchase_price) if self.purchase_price else None,
+            "currency": self.currency.value if self.currency else None,
+            "date_acquired": self.date_acquired.isoformat() if self.date_acquired else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }

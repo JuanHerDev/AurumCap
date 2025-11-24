@@ -1,92 +1,65 @@
-from passlib.context import CryptContext
-from datetime import datetime, timedelta
-from jose import JWTError, jwt
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.orm import Session
-from app.db.database import get_db
-from app.models.user import User
-from dotenv import load_dotenv
-import os, secrets, hashlib
+# app/utils/users/user.py - JWT and password utilities
 from datetime import datetime, timedelta, timezone
-
-load_dotenv()
+from jose import jwt, JWTError
+from passlib.context import CryptContext
+from fastapi import HTTPException, status
+import secrets
+import hashlib
+from app.core.config import settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-bearer_scheme = HTTPBearer()
 
-SECRET_KEY = os.getenv("SECRET_KEY")
-if not SECRET_KEY:
-    raise ValueError("SECRET_KEY environment variable is not set")
-
-ALGORITHM = os.getenv("ALGORITHM")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
-REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS"))
-
-# Password Managment
-
+# Password hashing
 def hash_password(password: str) -> str:
-    # bcrypt has a maximum password length of 72 bytes
-    if len(password.encode('utf-8')) > 72:
-        password = password[:72]
     return pwd_context.hash(password)
-
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
-
-# Token Managment
-
-def create_access_token(
-    *, subject: int | str, extra_data: dict | None = None, expires_minutes: int | None = None
-) -> str:
+# JWT tokens
+def create_access_token(subject: int) -> str:
     """
-    Create a JWT access token.
-    Can include extra user data (e.g. from Google).
+    Crea access token usando user_id como subject
     """
-    to_encode = {"sub": str(subject)}
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode = {"sub": str(subject), "exp": expire}
     
-    if extra_data:
-        to_encode.update(extra_data)
-    
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=(expires_minutes or ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
-    to_encode.update({"exp": expire})
-    
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
-def create_refresh_token(subject: int):
-    expires = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    raw_refresh = secrets.token_urlsafe(32)
-    return raw_refresh, expires
-    
-
-def hash_token(token: str) -> str:
-    # Hash the token with SHA-256 and a secret key
-    h = hashlib.sha256()
-    h.update(token.encode('utf-8'))
-    h.update(SECRET_KEY.encode('utf-8'))
-    return h.hexdigest()
-
-def verify_refresh_token_hash(token:str, token_hash:str) -> bool:
-    return hash_token(token) == token_hash
-
-def verify_access_token(token: str) -> int:
+def create_refresh_token(subject: int) -> tuple[str, datetime]:
     """
-    Decode and verify a JWT access token.
+    Crea refresh token y devuelve (token, expiration)
+    """
+    expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode = {"sub": str(subject), "exp": expire, "type": "refresh"}
+    
+    token = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+    return token, expire
+
+def verify_access_token(token: str) -> str:
+    """
+    Verifica access token y devuelve user_id (subject)
     """
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
         user_id = payload.get("sub")
-        if not user_id:
-            raise JWTError("Invalid token: missing subject")
-        return int(user_id)
-    except JWTError:
+        if user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token: missing subject"
+            )
+        return user_id
+    except JWTError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"}
+            detail=f"Invalid token: {str(e)}"
         )
-    
+
+# Refresh token hashing (para almacenar en DB)
+def hash_token(token: str) -> str:
+    """Hash a token for secure storage in database"""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+def generate_random_token(length: int = 32) -> str:
+    """Generate cryptographically secure random token"""
+    return secrets.token_urlsafe(length)

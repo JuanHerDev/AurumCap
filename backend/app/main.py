@@ -8,7 +8,6 @@ from app.models.investment import Investment
 from app.models.platform import Platform
 
 from app.routers.auth import auth as auth_routes
-from app.routers.auth import oauth_google as oauth_google_routes
 from app.routers import investments
 
 from app.middleware.security_logger import SecutiryLoggerMiddleware
@@ -49,7 +48,6 @@ app.add_middleware(
 )
 
 app.include_router(auth_routes.router)
-app.include_router(oauth_google_routes.router)
 app.include_router(users.router)
 app.include_router(investments.router)
 
