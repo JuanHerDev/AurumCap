@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 # CONSTANTS
 SYMBOL_REGEX = re.compile(r"^[A-Za-z0-9\.\-\_]{1,64}$")
 PROTECTED_FIELDS = {"id", "user_id", "created_at", "updated_at"}
+PRICE_TOLERANCE = Decimal('0.01')  # 1% tolerance for inconsistencies in price calculations
 
 class InvestmentCRUDError(Exception):
     """Custom exception for investment CRUD operations"""
@@ -123,9 +124,50 @@ class InvestmentCRUD:
         return purchase_price.quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
 
     @staticmethod
+    def validate_and_calculate_purchase_price(
+        invested_amount: Decimal,
+        quantity: Decimal,
+        provided_purchase_price: Optional[Decimal] = None
+    ) -> Decimal:
+        """
+        Validate purchase price consistency and calculate if necessary
+        Returns the corrected purchase price
+        """
+        # Calculate purchase price based on invested amount and quantity
+        calculated_price = InvestmentCRUD.calculate_purchase_price(invested_amount, quantity)
+        
+        # If no price provided, use calculated
+        if provided_purchase_price is None:
+            return calculated_price
+        
+        # If price provided, check for consistency
+        if provided_purchase_price > 0:
+            # Calculate difference percentage
+            if calculated_price > 0:
+                price_difference = abs(calculated_price - provided_purchase_price)
+                price_difference_percentage = price_difference / provided_purchase_price
+                
+                # If difference exceeds tolerance, log warning and use calculated price
+                if price_difference_percentage > PRICE_TOLERANCE:
+                    logger.warning(
+                        f"Purchase price inconsistency detected: "
+                        f"provided={provided_purchase_price}, "
+                        f"calculated={calculated_price:.6f}, "
+                        f"difference={price_difference_percentage:.2%}"
+                    )
+                    return calculated_price
+            
+            # If difference within tolerance, use provided price
+            return provided_purchase_price
+        
+        # If provided price is zero or negative, log warning and use calculated price
+        logger.warning(f"Invalid provided purchase price: {provided_purchase_price}. Using calculated price.")
+        return calculated_price
+
+    @staticmethod
     def create_investment(db: Session, user_id: int, data) -> Investment:
         """
-        Create a new investment - SIMPLIFICADO SIN date_acquired
+        Create a new investment - CON VALIDACIÓN MEJORADA DE PRECIO
         """
         try:
             # Validate symbol
@@ -141,16 +183,32 @@ class InvestmentCRUD:
             if data.quantity <= 0:
                 raise ValidationError("Quantity must be greater than zero")
 
-            # Calculate purchase price if not provided
-            purchase_price = data.purchase_price
-            if purchase_price is None:
-                purchase_price = InvestmentCRUD.calculate_purchase_price(
-                    Decimal(str(data.invested_amount)),
-                    Decimal(str(data.quantity))
+            # Convertir a Decimal para cálculos precisos
+            invested_amount = Decimal(str(data.invested_amount))
+            quantity = Decimal(str(data.quantity))
+            provided_purchase_price = (
+                Decimal(str(data.purchase_price)) 
+                if data.purchase_price is not None 
+                else None
+            )
+
+            # Validate and calculate purchase price
+            purchase_price = InvestmentCRUD.validate_and_calculate_purchase_price(
+                invested_amount=invested_amount,
+                quantity=quantity,
+                provided_purchase_price=provided_purchase_price
+            )
+
+            # Validate final purchase price
+            if purchase_price <= 0:
+                raise ValidationError("Calculated purchase price must be greater than zero")
+
+            # Debugging log
+            if provided_purchase_price is not None and provided_purchase_price != purchase_price:
+                logger.info(
+                    f"Purchase price corrected for user {user_id}: "
+                    f"from {provided_purchase_price} to {purchase_price:.6f}"
                 )
-            else:
-                if purchase_price <= 0:
-                    raise ValidationError("Purchase price must be greater than zero")
 
             investment = Investment(
                 user_id=user_id,
@@ -158,8 +216,8 @@ class InvestmentCRUD:
                 symbol=symbol,
                 asset_name=data.asset_name,
                 asset_type=data.asset_type,
-                invested_amount=data.invested_amount,
-                quantity=data.quantity,
+                invested_amount=invested_amount,
+                quantity=quantity,
                 purchase_price=purchase_price,
                 currency=data.currency,
                 coingecko_id=data.coingecko_id,
@@ -240,7 +298,7 @@ class InvestmentCRUD:
         update_data: Dict[str, Any]
     ) -> Investment:
         """
-        Update investment with validation and protection
+        Update investment with validation and protection - CON VALIDACIÓN MEJORADA DE PRECIO
         """
         try:
             # Validate update data
@@ -261,20 +319,41 @@ class InvestmentCRUD:
                 if field == "platform_id":
                     InvestmentCRUD.validate_platform(db, value)
 
-                # Recalculate purchase price if invested_amount or quantity changes
+                # Validar montos financieros
                 if field in ["invested_amount", "quantity"] and value is not None:
                     if value <= 0:
                         raise ValidationError(f"{field} must be greater than zero")
 
                 setattr(inv, field, value)
 
-            # Recalculate purchase price if needed
-            if "invested_amount" in updates or "quantity" in updates:
-                if inv.purchase_price is None or "purchase_price" not in updates:
-                    inv.purchase_price = InvestmentCRUD.calculate_purchase_price(
-                        Decimal(str(inv.invested_amount)),
-                        Decimal(str(inv.quantity))
+            # Recalculate purchase price if relevant fields changed
+            if "invested_amount" in updates or "quantity" in updates or "purchase_price" in updates:
+                # Get current values
+                current_invested_amount = Decimal(str(inv.invested_amount))
+                current_quantity = Decimal(str(inv.quantity))
+                current_purchase_price = (
+                    Decimal(str(inv.purchase_price)) 
+                    if inv.purchase_price is not None 
+                    else None
+                )
+                
+                # Recalculate purchase price if needed
+                if "purchase_price" not in updates:
+                    new_purchase_price = InvestmentCRUD.validate_and_calculate_purchase_price(
+                        invested_amount=current_invested_amount,
+                        quantity=current_quantity,
+                        provided_purchase_price=current_purchase_price
                     )
+                    inv.purchase_price = new_purchase_price
+                else:
+                    # Validate provided purchase price
+                    provided_price = Decimal(str(updates["purchase_price"]))
+                    validated_price = InvestmentCRUD.validate_and_calculate_purchase_price(
+                        invested_amount=current_invested_amount,
+                        quantity=current_quantity,
+                        provided_purchase_price=provided_price
+                    )
+                    inv.purchase_price = validated_price
 
             inv.updated_at = datetime.utcnow()
             db.commit()
@@ -319,6 +398,49 @@ class InvestmentCRUD:
             logger.error(f"Unexpected error deleting investment {inv.id}: {e}")
             raise InvestmentCRUDError("Unexpected error deleting investment")
 
+    @staticmethod
+    def recalculate_all_purchase_prices(db: Session, user_id: int) -> Dict[str, int]:
+        """
+        Recalcula todos los precios de compra para las inversiones de un usuario
+        Útil para corregir datos inconsistentes
+        """
+        try:
+            investments = db.query(Investment).filter(Investment.user_id == user_id).all()
+            corrected_count = 0
+            
+            for inv in investments:
+                original_price = inv.purchase_price
+                new_price = InvestmentCRUD.validate_and_calculate_purchase_price(
+                    invested_amount=Decimal(str(inv.invested_amount)),
+                    quantity=Decimal(str(inv.quantity)),
+                    provided_purchase_price=Decimal(str(inv.purchase_price))
+                )
+                
+                if new_price != original_price:
+                    inv.purchase_price = new_price
+                    corrected_count += 1
+                    logger.info(
+                        f"Corrected purchase price for investment {inv.id}: "
+                        f"from {original_price} to {new_price:.6f}"
+                    )
+            
+            if corrected_count > 0:
+                db.commit()
+            
+            return {
+                "total_investments": len(investments),
+                "corrected_prices": corrected_count
+            }
+            
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error(f"Database error recalculating prices for user {user_id}: {e}")
+            raise InvestmentCRUDError("Failed to recalculate purchase prices")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Unexpected error recalculating prices for user {user_id}: {e}")
+            raise InvestmentCRUDError("Unexpected error recalculating purchase prices")
+
 # Backward compatibility functions
 def create_platform(db: Session, name: str, type: Optional[str] = None, description: Optional[str] = None) -> Platform:
     return PlatformCRUD.create_platform(db, name, type, description)
@@ -349,3 +471,6 @@ def update_investment(db: Session, inv: Investment, update_data: Dict) -> Invest
 
 def delete_investment(db: Session, inv: Investment, user_id: int):
     return InvestmentCRUD.delete_investment(db, inv, user_id)
+
+def recalculate_all_purchase_prices(db: Session, user_id: int) -> Dict[str, int]:
+    return InvestmentCRUD.recalculate_all_purchase_prices(db, user_id)

@@ -61,4 +61,37 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,
-    )
+   )
+
+    # Properties for role checks
+    @property
+    def is_admin(self):
+        """Verify if the user is admin"""
+        return self.role == UserRole.admin
+    
+    @property
+    def is_analyst(self):
+        """Verify if the user is analyst"""
+        return self.role in [UserRole.admin, UserRole.analyst]
+    
+    @property
+    def is_support(self):
+        """Verify if the user is support"""
+        return self.role in [UserRole.admin, UserRole.support]
+    
+    @property
+    def is_superuser(self):
+        """Alias for is_admin"""
+        return self.is_admin
+    
+    def has_role(self, required_role: UserRole):
+        """
+        Verify if user has at least the required role
+        """
+        role_hierarchy = {
+            UserRole.investor: 0,
+            UserRole.support: 1,
+            UserRole.analyst: 2,
+            UserRole.admin: 3
+        }
+        return role_hierarchy[self.role] >= role_hierarchy[required_role]

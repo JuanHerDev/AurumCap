@@ -9,6 +9,8 @@ from app.models.user import User
 from app.utils.users.user import verify_access_token
 from app.crud.user import UserCRUD
 
+from app.models.user import UserRole as Role
+
 logger = logging.getLogger(__name__)
 
 security = HTTPBearer(auto_error=False)
@@ -19,7 +21,7 @@ async def get_current_user(
     db: Session = Depends(get_db)
 ) -> User:
     """
-    Obtiene usuario actual desde JWT token
+    Get current user from jwt token
     """
     if not credentials:
         raise HTTPException(
@@ -31,11 +33,11 @@ async def get_current_user(
     token = credentials.credentials
     
     try:
-        # Verificar token y obtener user_id
+        # Verify token and get user_id
         user_id_str = verify_access_token(token)
         user_id = int(user_id_str)
         
-        # Obtener usuario de la base de datos
+        # Get user from database
         user = UserCRUD.get_user_by_id(db, user_id)
         if not user:
             logger.warning(f"User not found for ID: {user_id}")
@@ -44,7 +46,7 @@ async def get_current_user(
                 detail="User not found",
             )
         
-        # Verificar que el usuario esté activo
+        # Verify user is active
         if not user.is_active:
             logger.warning(f"Inactive user attempted access: {user_id}")
             raise HTTPException(
@@ -76,22 +78,48 @@ async def get_current_user_optional(
     db: Session = Depends(get_db)
 ) -> User | None:
     """
-    Obtiene usuario actual opcional (para endpoints públicos/privados)
+    Get current user from jwt token, return None if no valid token is provided
     """
     try:
         return await get_current_user(request, credentials, db)
     except HTTPException:
         return None
     
-def get_current_active_superuser(
+def get_current_active_admin(
     current_user: User = Depends(get_current_user),
 ) -> User:
     """
-    Dependency to get current active superuser
+    Dependency to get current active admin user
     """
-    if not current_user.is_superuser:
+    if not current_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Inactive user"
+        )
+    if current_user.role != Role.admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="The user doesn't have enough privileges",
+            detail="The user doesn't have enough privileges. Admin access required."
         )
     return current_user
+
+def get_current_active_analyst(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """
+    Dependency to get current active analyst user
+    """
+    if not current_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Inactive user"
+        )
+    if current_user.role not in [Role.admin, Role.analyst]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The user doesn't have enough privileges. Analyst access required."
+        )
+    return current_user
+
+# Aliases for clarity
+get_current_active_superuser = get_current_active_admin

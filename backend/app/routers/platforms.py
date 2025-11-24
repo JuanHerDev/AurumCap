@@ -6,7 +6,7 @@ from decimal import Decimal
 from app.db.database import get_db
 from app.schemas.platform import PlatformCreate, PlatformOut, PlatformUpdate, PlatformWithStats, PlatformType
 from app.crud.investment import create_platform, get_platform, InvestmentCRUDError, ValidationError
-from app.deps.auth import get_current_user, get_current_active_superuser
+from app.deps.auth import get_current_user, get_current_active_admin
 from app.models.user import User
 from app.models.platform import Platform
 from app.models.investment import Investment
@@ -26,17 +26,17 @@ router = APIRouter(
 def create_platform_endpoint(
     payload: PlatformCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_superuser)
+    current_user: User = Depends(get_current_active_admin)
 ):
     """
     Create a new investment platform - ADMIN ONLY
     """
     try:
-        # Usar el CRUD existente pero adaptado para el nuevo schema
+
         platform = create_platform(
             db, 
             payload.name, 
-            payload.type.value,  # Convertir Enum a string
+            payload.type,
             payload.description
         )
         return platform
@@ -90,7 +90,7 @@ def list_platforms(
 )
 def get_platforms_with_stats(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_superuser)
+    current_user: User = Depends(get_current_active_admin)
 ):
     """
     Get platforms with investment statistics - ADMIN ONLY
@@ -166,7 +166,7 @@ def update_platform(
     platform_id: int,
     payload: PlatformUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_superuser)
+    current_user: User = Depends(get_current_active_admin)
 ):
     """
     Update a platform - ADMIN ONLY
@@ -203,7 +203,7 @@ def update_platform(
 def delete_platform(
     platform_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_superuser)
+    current_user: User = Depends(get_current_active_admin)
 ):
     """
     Delete a platform - ADMIN ONLY
@@ -242,7 +242,7 @@ def delete_platform(
 @router.post("/seed-defaults")
 def seed_default_platforms(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_superuser)
+    current_user: User = Depends(get_current_active_admin)
 ):
     """
     Seed default platforms - ADMIN ONLY
@@ -283,6 +283,11 @@ def seed_default_platforms(
                 "name": "Local Bitcoins",
                 "type": PlatformType.exchange,
                 "description": "Peer-to-peer Bitcoin trading platform"
+            },
+            {
+                "name": "Hapi",
+                "type": PlatformType.broker,
+                "description": "Brokerage platform for stocks and crypto"
             },
             {
                 "name": "Other",
