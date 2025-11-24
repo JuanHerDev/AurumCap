@@ -424,6 +424,42 @@ class InvestmentOut(InvestmentInDBBase):
     class Config:
         json_encoders = {Decimal: clean_decimal}
 
+
+
+class InvestmentCreateResponse(InvestmentOut):
+    """Response schema with user-friendly context"""
+    holding_context: str = Field(..., description="Context of the holding: 'new_holding' or 'added_to_existing'")
+    existing_holdings_count: int = Field(..., description="Number of existing holdings for this symbol")
+    total_invested_in_asset: Decimal = Field(..., description="Total invested in this asset across all holdings")
+    average_price: Optional[Decimal] = Field(None, description="Average purchase price across all holdings")
+    message: str = Field(..., description="User-friendly message")
+
+class AggregatedHolding(BaseModel):
+    """Schema for aggregated holdings by symbol"""
+    symbol: str
+    asset_name: str
+    asset_type: AssetType
+    total_quantity: Decimal
+    total_invested: Decimal
+    average_price: Decimal
+    current_price: Decimal
+    current_value: Decimal
+    gain_loss: Decimal
+    roi_percentage: Decimal
+    purchase_count: int
+    currency: str
+    purchases: List[Dict[str, Any]]
+
+    model_config = ConfigDict(
+        json_encoders={Decimal: clean_decimal}
+    )
+
+class AggregatedHoldingsResponse(BaseModel):
+    """Response for aggregated holdings endpoint"""
+    aggregated_holdings: Dict[str, AggregatedHolding]
+    total_symbols: int
+    calculation_date: datetime
+
 # PORTFOLIO SUMMARY MODELS
 class AssetAllocation(BaseModel):
     """Asset allocation data"""
@@ -458,12 +494,14 @@ class PortfolioSummary(BaseModel):
     total_gain_loss: Decimal
     total_roi_percentage: Decimal
     items: List[Dict[str, Any]]
+    aggregated_holdings: Dict[str, AggregatedHolding]  # NUEVO
     asset_allocation: Dict[str, AssetAllocation]
     performance_metrics: PerformanceMetrics
     
     model_config = ConfigDict(
         json_encoders={Decimal: clean_decimal}
     )
+
 
 # Export all models
 __all__ = [
@@ -475,6 +513,9 @@ __all__ = [
     'InvestmentUpdate',
     'Investment',
     'InvestmentOut',
+    'InvestmentCreateResponse',  
+    'AggregatedHolding',         
+    'AggregatedHoldingsResponse',
     'PortfolioSummary',
     'AssetAllocation',
     'PerformanceMetrics',
