@@ -53,7 +53,7 @@ export default function Home() {
           <section className="w-full max-w-xs space-y-3 mt-6">
               <Link
                 href="/register"
-                className="w-full h-12 flex items-center justify-center bg-[B59F50] text-black font-bold text-lg rounded-xl shadow-lg hover:bg-[#A68F45] transition duration-300"
+                className="w-full h-12 flex items-center justify-center  text-black font-bold text-lg rounded-xl shadow-lg hover:bg-[#B59F50] transition duration-300"
               >
                 Crear cuenta
               </Link>
