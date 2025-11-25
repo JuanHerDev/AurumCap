@@ -5,27 +5,28 @@ import { useRouter, usePathname } from "next/navigation";
 import { useEffect } from "react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
-    // Espera a que loading sea false
-    if (!loading && !user && pathname !== "/login") {
-      router.replace("/login"); // usar replace evita el "back" al dashboard
+    if (!isLoading && !user && pathname !== "/login") {
+      router.replace("/login");
     }
-  }, [loading, user, router, pathname]);
+  }, [isLoading, user, router, pathname]);
 
-  if (loading) {
+  if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-500 text-sm">Cargando...</p>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-[#B59F50] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-500 text-sm">Cargando...</p>
+        </div>
       </div>
     );
   }
 
-  // Solo renderiza children si hay user
   if (!user) return null;
 
-  return <div className="min-h-screen bg-gray-50">{children}</div>;
+  return <div className="min-h-screen bg-gray-50 pb-16">{children}</div>;
 }

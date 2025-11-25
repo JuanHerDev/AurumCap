@@ -1,80 +1,137 @@
 "use client";
 
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
-import { FaBookOpen, FaCalculator, FaBriefcase } from "react-icons/fa";
+import { FaBookOpen, FaCalculator, FaBriefcase, FaHome } from "react-icons/fa";
 import { JSX, useState } from "react";
 import { useAuth } from "@/features/auth/context/AuthProvider";
 import { useRouter } from "next/navigation";
 
 const data = [
-  { name: "Ene", value: 11000 },
-  { name: "Feb", value: 11200 },
-  { name: "Mar", value: 10900 },
-  { name: "Abr", value: 11500 },
-  { name: "May", value: 11750 },
+  { name: "Ene", value: 4000 },
+  { name: "Feb", value: 7000 },
+  { name: "Mar", value: 11000 },
+  { name: "Abr", value: 9000 },
+  { name: "May", value: 12000 },
   { name: "Jun", value: 12500 },
 ];
 
 export default function Dashboard() {
   const [period, setPeriod] = useState("1M");
   const { user } = useAuth();
+  const router = useRouter();
 
   return (
-    <main className="min-h-screen bg-black text-white px-4 py-6 flex flex-col items-center lg:px-20">
+    <main className="min-h-screen bg-gray-50 text-gray-900">
       {/* Header */}
-      <header className="w-full max-w-5xl mb-6">
-        <h1 className="text-xl font-semibold">
-          👋 Hola, <span className="text-yellow-400">{user?.full_name || "Usuario"}</span>
+      <header className="bg-white px-6 py-4 border-b border-gray-200">
+        <h1 className="text-2xl font-bold">
+          Hola, <span className="text-[#B59F50]">{user?.full_name || "Alex"}</span>
         </h1>
       </header>
 
-      {/* Balance Card */}
-      <section className="w-full max-w-5xl bg-yellow-900/30 rounded-2xl p-4 flex flex-col justify-between mb-6 lg:flex-row lg:items-center">
-        <div>
-          <p className="text-sm text-yellow-200">Balance Total</p>
-          <h2 className="text-3xl font-bold">$12.500,55</h2>
-          <p className="text-gray-400 text-sm">Crecimiento este mes</p>
-        </div>
-        <div className="text-green-400 text-lg font-semibold mt-2 lg:mt-0">+5,23%</div>
-      </section>
-
-      {/* Chart Section */}
-      <section className="w-full max-w-5xl bg-zinc-900 rounded-2xl p-4 mb-6">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="font-semibold">Rendimiento</h3>
-          <div className="flex gap-2">
-            {["1D", "1S", "1M", "1A"].map((p) => (
-              <button
-                key={p}
-                onClick={() => setPeriod(p)}
-                className={`px-3 py-1 rounded-lg text-sm ${
-                  period === p ? "bg-yellow-500 text-black font-bold" : "bg-zinc-800 text-gray-400"
-                }`}
-              >
-                {p}
-              </button>
-            ))}
+      {/* Main Content */}
+      <div className="p-6 max-w-6xl mx-auto">
+        {/* Balance Card */}
+        <section className="bg-white rounded-2xl p-6 shadow-sm mb-6">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-gray-500 text-sm mb-1">Balance Total</p>
+              <h2 className="text-4xl font-bold mb-2">$12.500,55</h2>
+              <div className="flex items-center gap-2">
+                <span className="text-green-500 font-semibold">+5,23%</span>
+                <span className="text-gray-500 text-sm">Crecimiento este mes</span>
+              </div>
+            </div>
           </div>
-        </div>
+        </section>
 
-        <div className="h-52 lg:h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data}>
-              <XAxis dataKey="name" stroke="#888" />
-              <YAxis hide />
-              <Tooltip />
-              <Line type="monotone" dataKey="value" stroke="#facc15" strokeWidth={2} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </section>
+        {/* Chart Section */}
+        <section className="bg-white rounded-2xl p-6 shadow-sm mb-6">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="font-semibold text-lg">Rendimiento</h3>
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+              {["1D", "1S", "1M", "1A"].map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPeriod(p)}
+                  className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                    period === p 
+                      ? "bg-[#B59F50] text-white" 
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
 
-      {/* Quick Actions */}
-      <section className="w-full max-w-5xl grid grid-cols-2 gap-4 lg:grid-cols-3">
-        <ActionCard icon={<FaBriefcase size={28} />} label="Portafolio" href="/portfolio" />
-        <ActionCard icon={<FaCalculator size={28} />} label="Simular inversión" href="/simulador" />
-        <ActionCard icon={<FaBookOpen size={28} />} label="Aprender" href="/aprender" />
-      </section>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={data}>
+                <XAxis 
+                  dataKey="name" 
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#6B7280', fontSize: 12 }}
+                />
+                <YAxis 
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#6B7280', fontSize: 12 }}
+                  domain={[0, 14000]}
+                  ticks={[0, 4000, 7000, 11000, 14000]}
+                />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#1F2937', 
+                    border: 'none',
+                    borderRadius: '8px',
+                    color: 'white'
+                  }}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="value" 
+                  stroke="#B59F50" 
+                  strokeWidth={3} 
+                  dot={false}
+                  activeDot={{ r: 6, fill: "#B59F50" }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+
+        {/* Quick Actions */}
+        <section className="grid grid-cols-2 gap-4 mb-20">
+          <ActionCard 
+            icon={<FaBriefcase className="text-[#B59F50]" size={24} />} 
+            label="Portafolio" 
+            href="/portfolio" 
+          />
+          <ActionCard 
+            icon={<FaCalculator className="text-[#B59F50]" size={24} />} 
+            label="Simular inversión" 
+            href="/simulator" 
+          />
+          <ActionCard 
+            icon={<FaBookOpen className="text-[#B59F50]" size={24} />} 
+            label="Aprender" 
+            href="/learn" 
+          />
+        </section>
+      </div>
+
+      {/* Bottom Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 py-3 px-8">
+        <div className="flex justify-between items-center">
+          <NavItem icon={<FaHome size={20} />} label="Inicio" active={true} />
+          <NavItem icon={<FaBriefcase size={20} />} label="Portafolio" href="/portfolio" />
+          <NavItem icon={<FaCalculator size={20} />} label="Simulador" href="/simulator" />
+          <NavItem icon={<FaBookOpen size={20} />} label="Perfil" href="/profile" />
+        </div>
+      </nav>
     </main>
   );
 }
@@ -89,10 +146,40 @@ function ActionCard({ icon, label, href }: { icon: JSX.Element; label: string; h
   return (
     <div
       onClick={handleClick}
-      className="cursor-pointer bg-zinc-900 rounded-2xl p-4 flex flex-col items-center justify-center hover:bg-zinc-800 transition"
+      className="cursor-pointer bg-white rounded-2xl p-6 flex flex-col items-center justify-center hover:shadow-md transition-shadow border border-gray-100"
     >
-      <div className="text-yellow-500 mb-2">{icon}</div>
-      <p className="text-sm font-medium">{label}</p>
+      <div className="mb-3">{icon}</div>
+      <p className="font-medium text-gray-900 text-center">{label}</p>
     </div>
+  );
+}
+
+function NavItem({ 
+  icon, 
+  label, 
+  href, 
+  active = false 
+}: { 
+  icon: JSX.Element; 
+  label: string; 
+  href?: string;
+  active?: boolean;
+}) {
+  const router = useRouter();
+
+  const handleClick = () => {
+    if (href) router.push(href);
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      className={`flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition-colors ${
+        active ? 'text-[#B59F50]' : 'text-gray-500 hover:text-gray-700'
+      }`}
+    >
+      {icon}
+      <span className="text-xs font-medium">{label}</span>
+    </button>
   );
 }

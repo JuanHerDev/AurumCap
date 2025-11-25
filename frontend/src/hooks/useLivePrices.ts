@@ -2,14 +2,18 @@ import { useEffect, useState, useCallback } from "react";
 
 interface Investment {
   id: number;
-  asset: string;       // "BTC", "ETH", "AAPL", "TSLA"
-  type: "crypto" | "stock";
-  quantity: number; // 0.01 BTC, 5 ETH, 10 AAPL
-  buy_price: number; // 120.000 BTC/USD
+  symbol: string;
+  asset?: string;
+  type?: "crypto" | "stock";
+  asset_type?: "crypto" | "stock";
+  quantity: number;
+  buy_price?: number;
+  purchase_price?: number;
+  invested_amount: number;
 }
 
 interface LivePriceMap {
-  [symbol: string]: number; // { BTC: 97500, ETH: 3200, AAPL: 182.54 }
+  [symbol: string]: number;
 }
 
 interface EnrichedInvestment extends Investment {
@@ -19,141 +23,156 @@ interface EnrichedInvestment extends Investment {
   roi: number;
 }
 
+interface PortfolioMetrics {
+  totalInvested: number;
+  totalCurrentValue: number;
+  totalGain: number;
+  totalROI: number;
+}
+
+// Convert a value to number safely
+const safeToNumber = (value: any, defaultValue: number = 0): number => {
+  if (value === null || value === undefined) return defaultValue;
+  
+  const num = Number(value);
+  return isNaN(num) ? defaultValue : num;
+};
+
+// Format number to fixed decimals
+const formatNumber = (value: number, decimals: number = 2): number => {
+  return Number(parseFloat(value.toString()).toFixed(decimals));
+};
+
 export function useLivePrices(
   investments: Investment[],
-  pollIntervalMs: number = 10000
+  pollIntervalMs: number = 30000
 ) {
   const [prices, setPrices] = useState<LivePriceMap>({});
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<Error | null>(null);
 
   /**
-   * -----------------------------------------
-   * 1️⃣ Fetch precios CRYPTO desde CoinGecko
-   * -----------------------------------------
-   */
-  const fetchCryptoPrices = async (symbols: string[]): Promise<LivePriceMap> => {
-    if (symbols.length === 0) return {};
-
-    // CoinGecko espera ids → tú tienes símbolos → hacemos un mapeo
-    const symbolToId: Record<string, string> = {
-      BTC: "bitcoin",
-      ETH: "ethereum",
-      SOL: "solana",
-      XRP: "ripple",
-      // agregar otras cryptos que manejes...
-    };
-
-    const ids = symbols
-      .map((s) => symbolToId[s.toUpperCase()])
-      .filter(Boolean)
-      .join(",");
-
-    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`;
-
-    const res = await fetch(url);
-    const data = await res.json();
-
-    const result: LivePriceMap = {};
-    for (const symbol of symbols) {
-      const id = symbolToId[symbol.toUpperCase()];
-      if (data[id]) {
-        result[symbol] = data[id].usd;
-      }
-    }
-    return result;
-  };
-
-  /**
-   * -----------------------------------------
-   * 2️⃣ Fetch precios STOCKS desde TwelveData
-   * -----------------------------------------
-   */
-  const fetchStockPrices = async (symbols: string[]): Promise<LivePriceMap> => {
-    if (symbols.length === 0) return {};
-
-    const apiKey = process.env.NEXT_PUBLIC_TWELVEDATA_API_KEY;
-    const result: LivePriceMap = {};
-
-    for (const s of symbols) {
-      const url = `https://api.twelvedata.com/price?symbol=${s}&apikey=${apiKey}`;
-      const res = await fetch(url);
-      const data = await res.json();
-
-      if (data?.price) {
-        result[s] = Number(data.price);
-      }
-    }
-
-    return result;
-  };
-
-  /**
-   * -----------------------------------------
-   * 3️⃣ Fetch combinado (Crypto + Stocks)
-   * -----------------------------------------
+   * Fetch ALL prices through backend (crypto + stocks)
    */
   const fetchPrices = useCallback(async () => {
-    if (!investments?.length) return;
+    if (!investments?.length) {
+      setPrices({});
+      return;
+    }
 
     try {
       setLoading(true);
       setError(null);
 
-      const cryptoSymbols = investments
-        .filter((i) => i.type === "crypto")
-        .map((i) => i.asset.toUpperCase());
+      // Get unique symbols from investments
+      const allSymbols = [...new Set(investments.map(i => i.symbol.toUpperCase()))];
+      
+      if (allSymbols.length === 0) {
+        setPrices({});
+        return;
+      }
 
-      const stockSymbols = investments
-        .filter((i) => i.type === "stock")
-        .map((i) => i.asset.toUpperCase());
+      console.log("🔍 [useLivePrices] Fetching prices for symbols:", allSymbols);
 
-      const [crypto, stocks] = await Promise.all([
-        fetchCryptoPrices(cryptoSymbols),
-        fetchStockPrices(stockSymbols),
-      ]);
+      // Use backend endpoint to get all prices
+      const symbolsParam = allSymbols.join(',');
+      const response = await fetch(`http://127.0.0.1:8000/prices/all?symbols=${symbolsParam}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+        }
+      });
 
-      setPrices({ ...crypto, ...stocks });
+      if (!response.ok) {
+        throw new Error(`Backend returned status: ${response.status}`);
+      }
+      
+      const priceData = await response.json();
+      
+      console.log("[useLivePrices] Prices received from backend:", priceData);
+
+      // Convert strings to numbers safely
+      const numericPrices: LivePriceMap = {};
+      Object.keys(priceData).forEach(symbol => {
+        if (priceData[symbol] !== null && priceData[symbol] !== undefined) {
+          numericPrices[symbol] = safeToNumber(priceData[symbol]);
+        }
+      });
+
+      setPrices(numericPrices);
 
     } catch (err: any) {
+      console.error('[useLivePrices] Error fetching prices:', err);
       setError(err);
+      
+      // Fallback: use purchase prices if available
+      const fallbackPrices: LivePriceMap = {};
+      investments.forEach(inv => {
+        const fallbackPrice = inv.purchase_price || 
+                            (inv.invested_amount && inv.quantity ? 
+                             inv.invested_amount / inv.quantity : 0);
+        fallbackPrices[inv.symbol] = safeToNumber(fallbackPrice);
+      });
+      setPrices(fallbackPrices);
     } finally {
       setLoading(false);
     }
   }, [investments]);
 
   /**
-   * -----------------------------------------
-   * 4️⃣ Polling Automático
-   * -----------------------------------------
+   * Automatic Polling
    */
   useEffect(() => {
     fetchPrices();
+    
     const interval = setInterval(fetchPrices, pollIntervalMs);
     return () => clearInterval(interval);
   }, [fetchPrices, pollIntervalMs]);
 
   /**
-   * -----------------------------------------
-   * 5️⃣ Enriquecer inversiones con precios
-   * -----------------------------------------
+   * Enrich investments with live prices and calculated metrics
    */
   const enriched: EnrichedInvestment[] = investments.map((inv) => {
-    const current_price = prices[inv.asset] ?? inv.buy_price;
-
-    const current_value = current_price * inv.quantity;
-    const initial_value = inv.buy_price * inv.quantity;
-    const gain = current_value - initial_value;
-    const roi = initial_value ? (gain / initial_value) * 100 : 0;
+    // Get current price with fallbacks
+    const rawCurrentPrice = prices[inv.symbol] ?? 
+                           inv.purchase_price ?? 
+                           (inv.invested_amount && inv.quantity ? 
+                            inv.invested_amount / inv.quantity : 0);
+    
+    // Convert to number safely
+    const current_price = safeToNumber(rawCurrentPrice);
+    const quantity = safeToNumber(inv.quantity);
+    const invested_amount = safeToNumber(inv.invested_amount);
+    
+    // Calculate metrics
+    const current_value = current_price * quantity;
+    const gain = current_value - invested_amount;
+    const roi = invested_amount > 0 ? (gain / invested_amount) * 100 : 0;
 
     return {
       ...inv,
-      current_price,
-      current_value,
-      gain,
-      roi,
+      current_price: formatNumber(current_price),
+      current_value: formatNumber(current_value), 
+      gain: formatNumber(gain),
+      roi: formatNumber(roi),
     };
   });
+
+  /**
+   * Metrics for the entire portfolio
+   */
+  const totalInvested = safeToNumber(enriched.reduce((sum, inv) => sum + safeToNumber(inv.invested_amount), 0));
+  const totalCurrentValue = safeToNumber(enriched.reduce((sum, inv) => sum + safeToNumber(inv.current_value), 0));
+  const totalGain = totalCurrentValue - totalInvested;
+  const totalROI = totalInvested > 0 ? (totalGain / totalInvested) * 100 : 0;
+
+  const portfolioMetrics: PortfolioMetrics = {
+    totalInvested: formatNumber(totalInvested),
+    totalCurrentValue: formatNumber(totalCurrentValue),
+    totalGain: formatNumber(totalGain),
+    totalROI: formatNumber(totalROI)
+  };
 
   return {
     prices,
@@ -161,5 +180,6 @@ export function useLivePrices(
     loading,
     error,
     refresh: fetchPrices,
+    portfolioMetrics
   };
 }
