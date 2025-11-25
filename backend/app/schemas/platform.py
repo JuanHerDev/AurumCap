@@ -1,40 +1,52 @@
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
-from decimal import Decimal
 from enum import Enum
 
 class PlatformType(str, Enum):
     broker = "broker"
-    exchange = "exchange" 
+    exchange = "exchange"
     bank = "bank"
     wallet = "wallet"
     other = "other"
 
+# Base schema
 class PlatformBase(BaseModel):
-    name: str = Field(..., min_length=1, max_length=128, description="Platform name")
-    type: PlatformType = Field(default=PlatformType.other, description="Platform type")
-    description: Optional[str] = Field(None, max_length=255, description="Platform description")
-    
-    model_config = ConfigDict(from_attributes=True, use_enum_values=True)
+    model_config = ConfigDict(from_attributes=True)
 
-class PlatformCreate(PlatformBase):
-    pass
-
-class PlatformUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=128)
-    type: Optional[PlatformType] = Field(None)
+    name: str = Field(..., min_length=1, max_length=128)
+    display_name: str = Field(..., min_length=1, max_length=128)
     description: Optional[str] = Field(None, max_length=255)
-    
-    model_config = ConfigDict(from_attributes=True, use_enum_values=True)
+    type: PlatformType
+    is_active: bool = True
+    supported_asset_types: List[str] = Field(default_factory=list)
+    api_config: Optional[Dict[str, Any]] = None
+    icon: Optional[str] = None
 
+# Output schema
 class PlatformOut(PlatformBase):
     id: int
     created_at: datetime
     updated_at: datetime
-    
-    model_config = ConfigDict(from_attributes=True, use_enum_values=True)
 
+# Create schema
+class PlatformCreate(PlatformBase):
+    pass
+
+# Update schema  
+class PlatformUpdate(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
+    name: Optional[str] = Field(None, min_length=1, max_length=128)
+    display_name: Optional[str] = Field(None, min_length=1, max_length=128)
+    description: Optional[str] = Field(None, max_length=255)
+    type: Optional[PlatformType] = None
+    is_active: Optional[bool] = None
+    supported_asset_types: Optional[List[str]] = None
+    api_config: Optional[Dict[str, Any]] = None
+    icon: Optional[str] = None
+
+# Schema with statistics
 class PlatformWithStats(PlatformOut):
-    investment_count: int = Field(0, description="Number of investments using this platform")
-    total_invested: Decimal = Field(0, description="Total amount invested through this platform")
+    investment_count: int
+    total_invested: float

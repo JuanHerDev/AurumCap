@@ -30,6 +30,9 @@ class Investment(Base):
         nullable=True,
     )
 
+
+    platform_specific_id = Column(String(255), nullable=True, index=True)
+
     asset_type = Column(
         Enum(AssetType, native_enum=True),
         nullable=False,
@@ -37,6 +40,7 @@ class Investment(Base):
     )
 
     symbol = Column(String(64), nullable=False, index=True)
+
 
     coingecko_id = Column(String(128), nullable=True, index=True)
     twelvedata_id = Column(String(128), nullable=True, index=True)
@@ -52,7 +56,6 @@ class Investment(Base):
         nullable=False,
         default=CurrencyEnum.USD,
     )
-
 
     created_at = Column(
         DateTime,
@@ -72,15 +75,15 @@ class Investment(Base):
     user = relationship("User", back_populates="investments", passive_deletes=True)
     platform = relationship("Platform", back_populates="investments", passive_deletes=True)
 
-    
     def to_dict(self):
         """
-        Método auxiliar para convertir a dict
+        Auxiliar method to convert Investment instance to dictionary
         """
         return {
             "id": self.id,
             "user_id": self.user_id,
             "platform_id": self.platform_id,
+            "platform_specific_id": self.platform_specific_id,
             "asset_type": self.asset_type.value if self.asset_type else None,
             "symbol": self.symbol,
             "coingecko_id": self.coingecko_id,

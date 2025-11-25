@@ -9,7 +9,7 @@ from app.models.platform import Platform
 
 
 from app.routers.auth import auth as auth_routes
-from app.routers import investments, platforms
+from app.routers import investments, platforms, prices
 
 from app.middleware.security_logger import SecutiryLoggerMiddleware
 from app.middleware.alert_middleware import AlertMiddleware
@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.routers import users
 import uvicorn
 import os
+
 
 # Create all database tables if doesn't exist
 def create_tables():
@@ -52,6 +53,7 @@ app.include_router(auth_routes.router)
 app.include_router(users.router)
 app.include_router(investments.router)
 app.include_router(platforms.router)
+app.include_router(prices.router)
 
 app.add_middleware(SecutiryLoggerMiddleware)
 app.add_middleware(AlertMiddleware)

@@ -68,17 +68,22 @@ class PortfolioCalculator:
     @staticmethod
     async def _get_asset_price(inv: Investment) -> Decimal:
         """
-        Get current price for an investment asset
+        Get current price for an investment asset - FIXED VERSION
         """
         try:
             if inv.asset_type == "crypto":
                 price = await get_crypto_price(inv.symbol)
             elif inv.asset_type == "stock":
-                price = await get_stock_price(inv.symbol)
+                # Asegurarse de que get_stock_price retorna Decimal, no await
+                price = get_stock_price(inv.symbol)  # Sin await si es síncrono
             else:
                 price = Decimal("0")
-                
+            
+            # Asegurar que el precio es Decimal
+            if price and not isinstance(price, Decimal):
+                return Decimal(str(price))
             return price or Decimal("0")
+        
         except Exception as e:
             logger.error(f"Error fetching price for {inv.symbol}: {e}")
             return Decimal("0")
@@ -371,13 +376,12 @@ class PortfolioCalculator:
         }
 
 
-
 @router.post(
     "",
     response_model=InvestmentCreateResponse, 
     status_code=status.HTTP_201_CREATED,
     summary="Create Investment",
-    description="Create a new investment - Same button for new purchases and adding to existing holdings"
+    description="Create a new investment - Automatically stacks with existing holdings"
 )
 def create_inv(
     payload: InvestmentCreate,
@@ -385,59 +389,151 @@ def create_inv(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Create a new investment - USER-FRIENDLY VERSION
-    - Same button for new assets and adding to existing ones
-    - Returns context about the holding
+    Create a new investment - AUTO-STACKING VERSION with DEBUG
     """
     try:
-        logger.info(f"🔄 Creating investment for user {current_user.id} - Asset: {payload.symbol}")
+        logger.info(f"🔄 [DEBUG] Creating/updating investment for user {current_user.id}")
+        logger.info(f"📦 [DEBUG] Payload received: symbol={payload.symbol}, platform_id={payload.platform_id}")
         
-        # Check user's existing holdings for this symbol (CONTEXTO USER-FRIENDLY)
-        holding_context = PortfolioCalculator.get_user_asset_context(db, current_user.id, payload.symbol)
+        # DEBUG: Ver todas las inversiones existentes del usuario
+        all_user_investments = db.query(Investment).filter(
+            Investment.user_id == current_user.id
+        ).all()
         
-        # Create the investment
-        result = create_investment(db, current_user.id, payload)
+        logger.info(f"📊 [DEBUG] User has {len(all_user_investments)} total investments:")
+        for inv in all_user_investments:
+            logger.info(f"   📍 ID:{inv.id} - {inv.symbol} (platform: {inv.platform_id}), Qty: {inv.quantity}")
         
-        # Prepare user-friendly response
-        if holding_context["has_existing_holdings"]:
-            message = f"Added to your existing {payload.symbol} holding"
-            context_type = "added_to_existing"
+        # Buscar inversión existente con el mismo símbolo
+        logger.info(f"🔍 [DEBUG] Searching for existing investment: symbol={payload.symbol.upper()}, platform_id={payload.platform_id}")
+        
+        # Construir query de búsqueda
+        query = db.query(Investment).filter(
+            Investment.user_id == current_user.id,
+            Investment.symbol == payload.symbol.upper()
+        )
+        
+        # Si platform_id está presente, filtrar por él
+        if payload.platform_id is not None:
+            query = query.filter(Investment.platform_id == payload.platform_id)
+            logger.info(f"🔍 [DEBUG] Using platform filter: {payload.platform_id}")
         else:
+            logger.info("🔍 [DEBUG] No platform filter - searching any platform")
+            # Si no hay platform_id, buscar cualquier inversión con el mismo símbolo
+            query = query.filter(Investment.platform_id.is_(None))
+        
+        existing_investment = query.first()
+        
+        logger.info(f"🔍 [DEBUG] Search result: {existing_investment}")
+        
+        if existing_investment:
+            # ACTUALIZAR inversión existente (STACKING)
+            logger.info(f"📦 [DEBUG] STACKING with existing investment {existing_investment.id}")
+            logger.info(f"📦 [DEBUG] Existing: Qty={existing_investment.quantity}, Invested={existing_investment.invested_amount}")
+            logger.info(f"📦 [DEBUG] New: Qty={payload.quantity}, Invested={payload.invested_amount}")
+            
+            try:
+                # Calcular nuevos valores con manejo seguro de Decimal
+                existing_quantity = Decimal(str(existing_investment.quantity))
+                existing_invested = Decimal(str(existing_investment.invested_amount))
+                new_quantity = existing_quantity + Decimal(str(payload.quantity))
+                new_invested_amount = existing_invested + Decimal(str(payload.invested_amount))
+                
+                logger.info(f"🧮 [DEBUG] Calculations:")
+                logger.info(f"   Existing Qty: {existing_quantity}")
+                logger.info(f"   New Qty: {Decimal(str(payload.quantity))}")
+                logger.info(f"   Total Qty: {new_quantity}")
+                logger.info(f"   Existing Invested: {existing_invested}")
+                logger.info(f"   New Invested: {Decimal(str(payload.invested_amount))}")
+                logger.info(f"   Total Invested: {new_invested_amount}")
+                
+                # Calcular nuevo precio promedio
+                new_purchase_price = new_invested_amount / new_quantity if new_quantity > 0 else Decimal("0")
+                logger.info(f"   New Avg Price: {new_purchase_price}")
+                
+                # Actualizar inversión existente
+                existing_investment.quantity = new_quantity
+                existing_investment.invested_amount = new_invested_amount
+                existing_investment.purchase_price = new_purchase_price
+                existing_investment.updated_at = datetime.utcnow()
+                
+                db.commit()
+                db.refresh(existing_investment)
+                
+                logger.info(f"✅ [DEBUG] Investment updated successfully: ID={existing_investment.id}")
+                
+                # Preparar respuesta
+                message = f"Added to your existing {payload.symbol} holding"
+                context_type = "added_to_existing"
+                result = existing_investment
+                
+            except Exception as calc_error:
+                logger.error(f"❌ [DEBUG] Error in stacking calculation: {calc_error}")
+                db.rollback()
+                raise InvestmentCRUDError(f"Error stacking investments: {str(calc_error)}")
+            
+        else:
+            # CREAR nueva inversión
+            logger.info(f"🆕 [DEBUG] No existing investment found - CREATING NEW")
+            result = create_investment(db, current_user.id, payload)
             message = f"New {payload.symbol} holding created"
             context_type = "new_holding"
+            logger.info(f"✅ [DEBUG] New investment created: ID={result.id}")
+        
+        # Obtener contexto actualizado de todas las holdings de este símbolo
+        all_symbol_holdings = db.query(Investment).filter(
+            Investment.user_id == current_user.id,
+            Investment.symbol == payload.symbol.upper()
+        ).all()
+        
+        logger.info(f"📊 [DEBUG] All holdings for {payload.symbol}: {len(all_symbol_holdings)} entries")
+        
+        # Calcular métricas agregadas
+        total_invested_in_asset = Decimal("0")
+        total_quantity = Decimal("0")
+        
+        for inv in all_symbol_holdings:
+            total_invested_in_asset += Decimal(str(inv.invested_amount))
+            total_quantity += Decimal(str(inv.quantity))
+            logger.info(f"   💰 Holding {inv.id}: Qty={inv.quantity}, Invested={inv.invested_amount}")
+        
+        average_price = total_invested_in_asset / total_quantity if total_quantity > 0 else Decimal("0")
+        
+        logger.info(f"📈 [DEBUG] Aggregate metrics: Total Qty={total_quantity}, Total Invested={total_invested_in_asset}, Avg Price={average_price}")
         
         # Crear respuesta user-friendly
         response_data = InvestmentCreateResponse(
             **result.__dict__,
             holding_context=context_type,
-            existing_holdings_count=holding_context["existing_holdings_count"],
-            total_invested_in_asset=holding_context["total_invested_in_asset"] + Decimal(str(payload.invested_amount)),
-            average_price=holding_context["average_price"],
+            existing_holdings_count=len(all_symbol_holdings),
+            total_invested_in_asset=total_invested_in_asset,
+            average_price=average_price,
             message=message
         )
         
-        logger.info(f"{message} - Total holdings: {holding_context['existing_holdings_count'] + 1}")
+        logger.info(f"✅ {message} - Total holdings: {len(all_symbol_holdings)}, Total invested: {total_invested_in_asset}")
         return response_data
         
     except ValidationError as e:
-        logger.warning(f"Validation error: {e}")
+        logger.warning(f"❌ [DEBUG] Validation error: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except InvestmentCRUDError as e:
-        logger.error(f"CRUD error: {e}")
+        logger.error(f"❌ [DEBUG] CRUD error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create investment"
         )
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
+        logger.error(f"❌ [DEBUG] Unexpected error: {str(e)}")
+        import traceback
+        logger.error(f"❌ [DEBUG] Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected error: {str(e)}"
         )
-
 
 @router.get(
     "/summary",
@@ -873,3 +969,46 @@ def test_manual_response(
     except Exception as e:
         print(f"[MANUAL RESPONSE ERROR] {str(e)}")
         raise HTTPException(500, f"Manual response test failed: {str(e)}")
+    
+@router.get("/debug/user-holdings")
+def debug_user_holdings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Debug endpoint to see all user holdings"""
+    investments = db.query(Investment).filter(
+        Investment.user_id == current_user.id
+    ).order_by(Investment.symbol, Investment.created_at).all()
+    
+    result = []
+    for inv in investments:
+        result.append({
+            "id": inv.id,
+            "symbol": inv.symbol,
+            "platform_id": inv.platform_id,
+            "quantity": str(inv.quantity),
+            "invested_amount": str(inv.invested_amount),
+            "purchase_price": str(inv.purchase_price),
+            "asset_type": inv.asset_type,
+            "created_at": inv.created_at.isoformat() if inv.created_at else None,
+            "updated_at": inv.updated_at.isoformat() if inv.updated_at else None
+        })
+    
+    # Agrupar por símbolo para ver stacking potencial
+    symbols = {}
+    for inv in investments:
+        symbol = inv.symbol
+        if symbol not in symbols:
+            symbols[symbol] = []
+        symbols[symbol].append({
+            "id": inv.id,
+            "platform_id": inv.platform_id,
+            "quantity": str(inv.quantity)
+        })
+    
+    return {
+        "user_id": current_user.id,
+        "total_investments": len(investments),
+        "investments": result,
+        "grouped_by_symbol": symbols
+    }

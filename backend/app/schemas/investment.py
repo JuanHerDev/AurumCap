@@ -113,6 +113,12 @@ class InvestmentBase(BaseModel):
         description="Currency of the investment"
     )
     
+    # Specific platform asset ID
+    platform_specific_id: Optional[str] = Field(
+        None,
+        max_length=255,
+        description="ID específico del activo en la plataforma"
+    )
 
     # Field validators
     @field_validator('symbol', mode='before')
@@ -220,7 +226,7 @@ class InvestmentCreate(InvestmentBase):
         description="Additional notes about the investment"
     )
 
-    @field_validator('coingecko_id', 'twelvedata_id', mode='before')
+    @field_validator('coingecko_id', 'twelvedata_id', 'platform_specific_id', mode='before')
     @classmethod
     def validate_api_ids(cls, v):
         """Validate API IDs"""
@@ -296,6 +302,12 @@ class InvestmentUpdate(BaseModel):
         description="Currency of the investment"
     )
     
+    # Specific platform asset ID
+    platform_specific_id: Optional[str] = Field(
+        None,
+        max_length=255,
+        description="ID específico del activo en la plataforma"
+    )
     
     platform_id: Optional[int] = Field(
         None,
@@ -325,6 +337,9 @@ class InvestmentUpdate(BaseModel):
     _validate_symbol = field_validator('symbol', mode='before')(InvestmentBase.validate_symbol_format)
     _validate_decimals = field_validator('invested_amount', 'quantity', 'purchase_price', mode='before')(
         InvestmentBase.validate_and_convert_decimal
+    )
+    _validate_api_ids = field_validator('coingecko_id', 'twelvedata_id', 'platform_specific_id', mode='before')(
+        InvestmentCreate.validate_api_ids
     )
 
     @model_validator(mode='after')
@@ -373,6 +388,12 @@ class InvestmentInDBBase(BaseModel):
     id: int = Field(..., description="Unique investment ID")
     user_id: int = Field(..., description="Owner user ID")
     platform_id: Optional[int] = Field(None, description="Platform ID")
+    
+    # Specific platform asset ID
+    platform_specific_id: Optional[str] = Field(
+        None, 
+        description="ID específico del activo en la plataforma"
+    )
     
     # Core investment fields
     asset_type: AssetType = Field(..., description="Type of asset")
@@ -424,8 +445,6 @@ class InvestmentOut(InvestmentInDBBase):
     class Config:
         json_encoders = {Decimal: clean_decimal}
 
-
-
 class InvestmentCreateResponse(InvestmentOut):
     """Response schema with user-friendly context"""
     holding_context: str = Field(..., description="Context of the holding: 'new_holding' or 'added_to_existing'")
@@ -433,6 +452,13 @@ class InvestmentCreateResponse(InvestmentOut):
     total_invested_in_asset: Decimal = Field(..., description="Total invested in this asset across all holdings")
     average_price: Optional[Decimal] = Field(None, description="Average purchase price across all holdings")
     message: str = Field(..., description="User-friendly message")
+
+class InvestmentErrorResponse(BaseModel):
+    """Error response schema for investment operations"""
+    error: str = Field(..., description="Error type")
+    detail: str = Field(..., description="Error details")
+    symbol: Optional[str] = Field(None, description="Related symbol")
+    holding_context: Optional[str] = Field(None, description="Holding context at time of error")
 
 class AggregatedHolding(BaseModel):
     """Schema for aggregated holdings by symbol"""
@@ -494,7 +520,7 @@ class PortfolioSummary(BaseModel):
     total_gain_loss: Decimal
     total_roi_percentage: Decimal
     items: List[Dict[str, Any]]
-    aggregated_holdings: Dict[str, AggregatedHolding]  # NUEVO
+    aggregated_holdings: Dict[str, AggregatedHolding]
     asset_allocation: Dict[str, AssetAllocation]
     performance_metrics: PerformanceMetrics
     

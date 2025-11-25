@@ -4,10 +4,8 @@ import asyncio
 import time
 from typing import Optional, Dict, Any
 from decimal import Decimal, ROUND_HALF_UP
-from functools import lru_cache
 import logging
 from dataclasses import dataclass
-from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +134,7 @@ class CryptoPriceService:
             search_response = self._session.get(
                 f"{COINGECKO_API}/search",
                 params=search_params,
-                timeout=TEOUT
+                timeout=TIMEOUT
             )
             search_response.raise_for_status()
             search_data = search_response.json()
