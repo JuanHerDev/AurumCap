@@ -17,6 +17,7 @@ from app.models import user as user_models
 from app.models.refresh_token import RefreshToken
 from app.models.user import UserRole, AuthProviderEnum
 from app.schemas import user as user_schema
+from app.schemas.user import PasswordChange, UserResponse
 from app.crud.user import UserCRUD
 from app.core.redis_client import get_redis
 from app.core.config import settings
@@ -169,11 +170,13 @@ async def login(
     ip = request.client.host if request.client else "unknown"
     identifier = user_data.email.lower()
 
+    logger.info(f"🔐 Intento de login para: {identifier} desde {ip}")
+
     # Brute force protection
     try:
         blocked = await is_blocked(ip=ip, identifier=identifier, redis=redis)
         if blocked:
-            logger.warning(f"Blocked login attempt for {identifier} from {ip}")
+            logger.warning(f"🚫 Login bloqueado por brute force: {identifier} desde {ip}")
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Too many failed login attempts. Please try again later.",
@@ -183,6 +186,7 @@ async def login(
 
     # Find user
     db_user = UserCRUD.get_user_by_email(db, user_data.email)
+    logger.info(f"👤 Usuario encontrado: {db_user.id if db_user else 'No encontrado'}")
     
     # Validate credentials
     valid_login = (
@@ -200,7 +204,7 @@ async def login(
         except Exception as e:
             logger.warning(f"Could not record failed attempt: {e}")
 
-        logger.warning(f"Failed login attempt for {user_data.email} from {ip}")
+        logger.warning(f"❌ Login fallido para {user_data.email} desde {ip}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, 
             detail="Invalid email or password"
@@ -215,7 +219,7 @@ async def login(
     # Create user session
     tokens = AuthService._create_user_session(db, db_user, request, response)
     
-    logger.info(f"Successful login for user: {db_user.id} - {db_user.email}")
+    logger.info(f"✅ Login exitoso para usuario: {db_user.id} - {db_user.email}")
     return tokens
 
 @router.get("/login/google")
@@ -367,3 +371,198 @@ async def logout(
 async def get_me(current_user: user_models.User = Depends(get_current_user)):
     """Get current user information"""
     return current_user
+
+@router.put("/me/password", response_model=dict)
+async def change_password(
+    password_data: PasswordChange,
+    current_user: user_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Change the current user's password
+    """
+    try:
+        logger.info(f"===== INICIANDO CAMBIO DE CONTRASEÑA =====")
+        logger.info(f"Usuario: {current_user.id} - {current_user.email}")
+        
+        # ===== DEBUG 1: INFORMACIÓN INICIAL =====
+        logger.info(f"[DEBUG-1] Contraseña actual ingresada: '{password_data.current_password}'")
+        logger.info(f"[DEBUG-1] Longitud contraseña actual: {len(password_data.current_password)}")
+        logger.info(f"[DEBUG-1] Hash almacenado en BD: {current_user.hashed_password}")
+        logger.info(f"[DEBUG-1] Longitud hash: {len(current_user.hashed_password) if current_user.hashed_password else 0}")
+
+        # ===== VERIFICACIÓN CONTRASEÑA ACTUAL =====
+        logger.info(f"Verificando contraseña actual...")
+        is_current_valid = utils.verify_password(password_data.current_password, current_user.hashed_password)
+        logger.info(f"[DEBUG-2] Resultado verificación actual: {is_current_valid}")
+        
+        if not is_current_valid:
+            logger.warning(f"[ERROR] Contraseña actual incorrecta para usuario {current_user.email}")
+            # Debug adicional para entender por qué falla
+            test_hash = utils.hash_password(password_data.current_password)
+            logger.info(f"[DEBUG-2a] Hash de prueba con misma contraseña: {test_hash}")
+            logger.info(f"[DEBUG-2b] ¿Verifica el hash de prueba?: {utils.verify_password(password_data.current_password, test_hash)}")
+            
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La contraseña actual es incorrecta"
+            )
+        
+        logger.info("✅ Contraseña actual verificada correctamente")
+
+        # ===== VERIFICACIÓN CONTRASEÑA NUEVA =====
+        logger.info(f"[DEBUG-3] Nueva contraseña: '{password_data.new_password}'")
+        logger.info(f"[DEBUG-3] Longitud nueva contraseña: {len(password_data.new_password)}")
+        
+        is_same_password = utils.verify_password(password_data.new_password, current_user.hashed_password)
+        logger.info(f"[DEBUG-4] ¿Nueva contraseña igual a actual?: {is_same_password}")
+        
+        if is_same_password:
+            logger.warning(f"Nueva contraseña igual a la actual para usuario {current_user.email}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La nueva contraseña no puede ser igual a la actual"
+            )
+
+        # ===== VALIDACIÓN FUERZA CONTRASEÑA =====
+        try:
+            user_schema.UserCreate(password=password_data.new_password, email=current_user.email)
+            logger.info("Nueva contraseña cumple con los requisitos de seguridad")
+        except ValueError as e:
+            logger.warning(f"Nueva contraseña no cumple requisitos: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+
+        # ===== HASH NUEVA CONTRASEÑA =====
+        logger.info("Generando nuevo hash...")
+        new_hashed_password = utils.hash_password(password_data.new_password)
+        logger.info(f"[DEBUG-5] Nuevo hash generado: {new_hashed_password}")
+        logger.info(f"[DEBUG-5] Longitud nuevo hash: {len(new_hashed_password)}")
+        
+        # Test del nuevo hash inmediatamente
+        is_new_hash_valid = utils.verify_password(password_data.new_password, new_hashed_password)
+        logger.info(f"[DEBUG-6] ¿El nuevo hash verifica correctamente?: {is_new_hash_valid}")
+
+        # ===== ACTUALIZACIÓN BASE DE DATOS =====
+        logger.info(f"Actualizando base de datos...")
+        logger.info(f"[DEBUG-7] Hash ANTES de actualizar: {current_user.hashed_password}")
+        
+        current_user.hashed_password = new_hashed_password
+        db.commit()
+        logger.info("Commit realizado")
+        
+        db.refresh(current_user)
+        logger.info("Usuario refrescado en sesión")
+
+        # ===== VERIFICACIÓN POST-ACTUALIZACIÓN =====
+        logger.info("Verificando actualización en BD...")
+        fresh_user = UserCRUD.get_user_by_email(db, current_user.email)
+        if fresh_user:
+            logger.info(f"[DEBUG-8] Hash en BD después del commit: {fresh_user.hashed_password}")
+            logger.info(f"[DEBUG-8] Longitud hash en BD: {len(fresh_user.hashed_password) if fresh_user.hashed_password else 0}")
+            logger.info(f"[DEBUG-9] ¿Coincide con el nuevo hash?: {fresh_user.hashed_password == new_hashed_password}")
+            
+            # Test de verificación con el usuario fresco de la BD
+            fresh_verify = utils.verify_password(password_data.new_password, fresh_user.hashed_password)
+            logger.info(f"[DEBUG-10] ¿La nueva contraseña verifica con BD?: {fresh_verify}")
+            
+            # Test de verificación con el usuario en sesión
+            session_verify = utils.verify_password(password_data.new_password, current_user.hashed_password)
+            logger.info(f"[DEBUG-11] ¿La nueva contraseña verifica con sesión?: {session_verify}")
+        else:
+            logger.error("No se pudo obtener usuario fresco de la BD")
+
+        # ===== VERIFICACIÓN CONTRASEÑA ANTERIOR =====
+        old_password_still_works = utils.verify_password(password_data.current_password, current_user.hashed_password)
+        logger.info(f"[DEBUG-12] ¿La contraseña anterior aún funciona?: {old_password_still_works}")
+
+        logger.info(f"===== CAMBIO DE CONTRASEÑA COMPLETADO =====")
+        logger.info(f"Contraseña cambiada exitosamente para usuario {current_user.email}")
+
+        return {
+            "message": "Contraseña actualizada exitosamente",
+            "detail": "Tu contraseña ha sido cambiada correctamente"
+        }
+        
+    except HTTPException:
+        logger.error("===== CAMBIO DE CONTRASEÑA FALLIDO - HTTPException =====")
+        raise
+    except Exception as e:
+        logger.error(f"===== CAMBIO DE CONTRASEÑA FALLIDO - Error crítico =====")
+        logger.error(f"Error: {e}")
+        logger.error(f"ipo de error: {type(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al cambiar la contraseña"
+        )
+
+@router.put("/me", response_model=UserResponse)
+async def update_current_user_info(
+    user_update: user_schema.UserUpdate,
+    current_user: user_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update current user information"""
+    try:
+        updated_user = UserCRUD.update_user(
+            db=db,
+            user_id=current_user.id,
+            update_data=user_update.model_dump(exclude_unset=True)
+        )
+        return updated_user
+    except Exception as e:
+        logger.error(f"Error updating user {current_user.id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al actualizar la información del usuario"
+        )
+
+@router.post("/debug-password")
+async def debug_password(
+    debug_data: dict,
+    db: Session = Depends(get_db)
+):
+    """
+    Endpoint temporal para debuggear contraseñas
+    """
+    try:
+        email = debug_data.get("email")
+        password_to_test = debug_data.get("password")
+        
+        logger.info(f"🔧 ===== DEBUG PASSWORD =====")
+        logger.info(f"🔧 Email: {email}")
+        logger.info(f"🔧 Contraseña a testear: '{password_to_test}'")
+        
+        user = UserCRUD.get_user_by_email(db, email)
+        if not user:
+            logger.warning(f"🔧 Usuario no encontrado: {email}")
+            return {"error": "Usuario no encontrado"}
+        
+        # Test de hash/verify
+        test_hash = utils.hash_password(password_to_test)
+        test_verify = utils.verify_password(password_to_test, test_hash)
+        current_verify = utils.verify_password(password_to_test, user.hashed_password)
+        
+        logger.info(f"Hash almacenado en BD: {user.hashed_password}")
+        logger.info(f"Nuevo hash de prueba: {test_hash}")
+        logger.info(f"¿El nuevo hash verifica?: {test_verify}")
+        logger.info(f"¿La contraseña actual verifica?: {current_verify}")
+        logger.info(f"¿Son el mismo hash?: {user.hashed_password == test_hash}")
+        
+        return {
+            "user_id": user.id,
+            "email": user.email,
+            "stored_hash": user.hashed_password,
+            "new_test_hash": test_hash,
+            "test_hash_works": test_verify,
+            "current_password_works": current_verify,
+            "same_hash": user.hashed_password == test_hash
+        }
+    except Exception as e:
+        logger.error(f"💥 Error en debug: {e}")
+        return {"error": str(e)}
