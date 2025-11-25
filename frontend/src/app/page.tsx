@@ -1,191 +1,198 @@
 import Link from "next/link";
+import Image from "next/image";
 
 export default function Home() {
   return (
     <div className="min-h-screen bg-black text-white">
-      {/* Mobile First Layout */}
-      <div className="block md:hidden">
-        {/* Mobile Version */}
-        <div className="w-full h-screen flex flex-col items-center justify-center gap-6 px-6">
-
-          {/* Logo Section */}
-          <img 
+      <div className="min-h-screen flex flex-col items-center justify-center px-6 py-8 md:py-12">
+        
+        {/* Logo Section */}
+        <div className="flex flex-col items-center gap-4 md:gap-6 mb-8 md:mb-12">
+          <Image 
             src="/Logo.png"
             alt="AurumCap Logo"
-            className="w-40 h-auto"
+            width={50}
+            height={150}
+            className="w-20 h-20 md:w-32 md:h-32 lg:w-40 lg:h-40"
           />
-
+          
           {/* Text: AurumCap */}
-          <h2 className="text-[#CCB661] text-3xl font-bold drop-shadow-md">
+          <h2 className="text-[#CCB661] text-3xl md:text-5xl lg:text-6xl font-bold drop-shadow-md">
             AurumCap
           </h2>
-
-          {/* Main Text */}
-          <section className="text-center">
-            <h1 className="font-bold text-2xl mb-4">
-              Maneja tus inversiones desde un mismo lugar.
-            </h1>
-            <p className="text-gray-300 text-sm">
-              Invierte de forma inteligente y haz crecer tu capital
-            </p>
-          </section>
-
-          {/* Benefits */}
-          <section className="w-full max-w-xs mt-4">
-            <h3 className="text-[#CCB661] font-semibold text-lg mb-4 text-center">
-              Nuestros Beneficios
-            </h3>
-            <div className="space-y-3">
-              {[
-                { icon: "📚", text: "Aprende" },
-                { icon: "💼", text: "Invierte" },
-                { icon: "📈", text: "Crecimiento" }
-              ].map((benefit, index) => (
-                <div key={index} className="flex items-center gap-3 bg-gray-900/50 rounded-lg p-3">
-                  <span className="text-lg">{benefit.icon}</span>
-                  <span className="font-medium">{benefit.text}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          {/* Action Buttons */}
-          <section className="w-full max-w-xs space-y-3 mt-6">
-              <Link
-                href="/register"
-                className="w-full h-12 flex items-center justify-center  text-black font-bold text-lg rounded-xl shadow-lg hover:bg-[#B59F50] transition duration-300"
-              >
-                Crear cuenta
-              </Link>
-
-              <Link
-                href="/login"
-                className="w-full h-12 flex items-center justify-center border-2 border-[#B59F50] text-[#B59F50] font-bold text-lg rounded-xl hover:bg-[#B59F50] hover:text-black transition duration-300"
-              >
-                Iniciar sesión
-              </Link>
-          </section>
-
-          {/* Footer links */}
-          <footer className="absolute bottom-6 flex gap-6 text-sm text-gray-400">
-            <Link
-              href="/privacy"
-              className="hover:text-[#CCB661] transition"
-            >
-              Política de Privacidad
-            </Link>
-
-            <Link
-              href="/support"
-              className="hover:text-[#CCB661] transition"
-            >
-              Soporte
-            </Link>
-          </footer>
         </div>
-      </div>
+      <br/>
+        {/* Main Text */}
+        <section className="text-center mb-8 md:mb-12 lg:mb-16 max-w-2xl">
+          <h1 className="font-bold text-2xl md:text-4xl lg:text-5xl mb-4 md:mb-6 lg:mb-8 leading-tight">
+            Invierte sin complicarte
+          </h1>
+          <p className="text-gray-300 text-sm md:text-lg lg:text-xl leading-relaxed">
+            Maneja tus inversiones desde un mismo lugar de forma<br className="hidden md:block" />
+            inteligente y segura.
+          </p>
+        </section>
+<br/>
+ {/* Action Buttons */}
+        <section className="w-full max-w-xs md:max-w-md space-y-3 md:space-y-0 md:flex md:justify-center md:gap-4 lg:gap-6 mb-8 md:mb-12 lg:mb-16">
+  
+  {/* CREAR CUENTA */}
+  <Link
+    href="/register"
+    className="
+      w-full md:w-auto flex items-center justify-center 
+       w-full md:w-auto flex items-center justify-center 
+      border-2 border-[#B59F50] text-[#B59F50] 
+      font-bold text-lg md:text-xl
 
-      {/* Desktop Layout */}
-      <div className="hidden md:flex min-h-screen flex-col items-center justify-center px-8">
-        <div className="max-w-2xl w-full text-center">
-          
-          {/* Logo & Name */}
-          <div className="flex flex-col items-center gap-8 mb-16">
-            <img
-              src="/Logo.png"
-              alt="AurumCap Logo"
-              className="w-42 h-42"
-            />
-            <h2 className="text-[#CCB661] text-6xl font-bold"> 
-              AurumCap
-            </h2>
+      py-3 md:py-4 lg:py-5
+      px-8 md:px-12 lg:px-16
+
+      hover:!py-2 hover:!px-8  /* 👈 IGUAL CRECE EL CUADRO */
+      hover:bg-[#B59F50] hover:text-black
+
+      rounded-xl
+      transition-all duration-300
+      hover:scale-105
+    "
+  >
+    Crear cuenta
+  </Link>
+
+  {/* INICIAR SESIÓN */}
+  <Link
+    href="/login"
+    className="
+      w-full md:w-auto flex items-center justify-center 
+      border-2 border-[#B59F50] text-[#B59F50] 
+      font-bold text-lg md:text-xl
+
+      py-3 md:py-4 lg:py-5
+      px-8 md:px-12 lg:px-16
+
+      hover:!py-2 hover:!px-8  /* 👈 IGUAL CRECE EL CUADRO */
+      hover:bg-[#B59F50] hover:text-black
+
+      rounded-xl
+      transition-all duration-300
+      hover:scale-105
+    "
+  >
+    Iniciar sesión
+  </Link>
+
+</section>
+
+      <br/>
+        {/* Benefits */}
+        <section className="w-full max-w-xs md:max-w-4xl mb-8 md:mb-12 lg:mb-16">
+          <h3 className="text-[#CCB661] font-semibold text-lg md:text-2xl lg:text-3xl mb-4 md:mb-8 lg:mb-12 text-center">
+            Nuestros Beneficios
+          </h3>
+          <br/>
+          {/* Mobile: Lista vertical */}
+          <div className="block md:hidden space-y-3">
+            {[
+              { icon: "📚", text: "Aprende" },
+              { icon: "💼", text: "Invierte" },
+              { icon: "📈", text: "Crecimiento" }
+            ].map((benefit, index) => (
+              <div key={index} className="flex items-center gap-3 bg-gray-900/50 rounded-lg p-3">
+                <span className="text-lg">{benefit.icon}</span>
+                <span className="font-medium">{benefit.text}</span>
+              </div>
+            ))}
           </div>
 
-          {/* Main Text */}
-          <section className="mb-16">
-            <h1 className="text-6xl font-bold mb-8 leading-tight">
-              Invierte sin complicarte
-            </h1>
-            <p className="text-lg text-gray-300 leading-relaxed">
-              Maneja tus inversiones desde un mismo lugar de forma<br />
-              inteligente y segura.
-            </p>
-          </section>
+          
+          {/* Desktop: Grid de 3 columnas */}
+<div className="hidden md:grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 lg:gap-8">
+  {[
+    { 
+      icon: "🎓", 
+      text: "Aprende", 
+      desc: "Educación financiera accesible" 
+    },
+    { 
+      icon: "💼", 
+      text: "Invierte", 
+      desc: "Plataforma intuitiva de inversión" 
+    },
+    { 
+      icon: "📈", 
+      text: "Crecimiento", 
+      desc: "Sigue tu progreso en tiempo real" 
+    }
+  ].map((benefit, index) => (
+    <div 
+      key={index} 
+      className="
+        group flex flex-col items-center
+        p-6 rounded-xl 
+        transition-all duration-300
+        bg-transparent
+        hover:bg-gray-900/50 
+        hover:scale-105
+      "
+    >
+      {/* ICONO con CUADRADO DORADO QUE DESAPARECE EN HOVER */}
+      <span
+        className="
+          bg-[#B59F50] 
+          rounded-xl 
+          flex items-center justify-center 
+          transition-all duration-300
+          size-12
+          shadow-lg
 
-          {/* Beneficios - CENTRADO EN GRID */}
-          <section className="mb-20">
-            <h3 className="text-[#CCB661] font-semibold text-3xl mb-12">
-              Nuestros Beneficios
-            </h3>
-            <div className="grid grid-cols-3 gap-8"> {/* Grid de 3 columnas */}
-              {[
-                { 
-                  icon: "🎓", 
-                  text: "Aprende", 
-                  desc: "Educación financiera accesible" 
-                },
-                { 
-                  icon: "💼", 
-                  text: "Invierte", 
-                  desc: "Plataforma intuitiva de inversión" 
-                },
-                { 
-                  icon: "📈", 
-                  text: "Crecimiento", 
-                  desc: "Sigue tu progreso en tiempo real" 
-                }
-              ].map((benefit, index) => (
-                <div 
-                  key={index} 
-                  className="flex flex-col items-center gap-4 p-6 bg-gray-900/30 rounded-xl hover:bg-gray-900/50 transition-all duration-300 hover:scale-105"
-                >
-                  <span className="text-4xl">{benefit.icon}</span> {/* Iconos más grandes */}
-                  <div>
-                    <div className="font-semibold text-xl mb-2">{benefit.text}</div>
-                    <div className="text-gray-400 text-sm">{benefit.desc}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
+          group-hover:bg-transparent  /* Desaparece */
+          group-hover:shadow-none
+        "
+      >
+        <span className="text-3xl transition-all duration-300 group-hover:text-4xl">
+          {benefit.icon}
+        </span>
+      </span>
 
-          {/* Botones de acción - CENTRADOS */}
-          <section className="flex justify-center gap-6 mb-16">
-            <Link
-              href="/register"
-              className="px-16 py-5 bg-[#B59F50] text-black font-bold text-xl rounded-xl shadow-lg hover:bg-[#A68F45] transition-all duration-300 hover:scale-105"
-            >
-              Crear cuenta
-            </Link>
-            
-            <Link
-              href="/login"
-              className="px-16 py-5 border-2 border-[#B59F50] text-[#B59F50] font-bold text-xl rounded-xl hover:bg-[#B59F50] hover:text-black transition-all duration-300"
-            >
-              Iniciar sesión
-            </Link>
-          </section>
-
-          {/* Enlaces footer - CENTRADOS */}
-          <footer className="flex justify-center gap-8 text-gray-400 text-sm">
-            <Link 
-              href="/privacy" 
-              className="hover:text-[#CCB661] transition-colors duration-200"
-            >
-              Política de Privacidad
-            </Link>
-            <Link 
-              href="/support" 
-              className="hover:text-[#CCB661] transition-colors duration-200"
-            >
-              Soporte
-            </Link>
-          </footer>
+      {/* TEXTO OCULTO HASTA HOVER */}
+      <div 
+        className="
+          text-center mt-4 opacity-0 
+          group-hover:opacity-100 
+          group-hover:mt-6
+          transition-all duration-300
+        "
+      >
+        <div className="font-semibold text-lg md:text-xl mb-1">
+          {benefit.text}
+        </div>
+        <div className="text-gray-400 text-sm">
+          {benefit.desc}
         </div>
       </div>
+    </div>
+  ))}
+</div>
 
+        </section>
+
+        {/* Footer links */}
+        <footer className="flex gap-4 md:gap-6 lg:gap-8 text-sm md:text-base text-gray-400 mt-auto pt-8">
+          <Link
+            href="/privacy"
+            className="hover:text-[#CCB661] transition-colors duration-200"
+          >
+            Política de Privacidad
+          </Link>
+
+          <Link
+            href="/support"
+            className="hover:text-[#CCB661] transition-colors duration-200"
+          >
+            Soporte
+          </Link>
+        </footer>
+      </div>
     </div>
   );
 }
-
-
