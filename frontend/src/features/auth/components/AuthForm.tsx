@@ -51,17 +51,17 @@ export default function AuthForm({ mode }: Props) {
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4 w-full">
       {/* Email */}
       <div>
-        <label className="block text-center font-semibold text-gray-700 mb-1">
+        <label className="block text-center font-semibold !text-writhe-500 mb-1">
           Correo electrónico
         </label>
         <div className="relative">
-          <Mail className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
+          <Mail className="absolute left-3 top-3.5 !text-gray-800 w-5 h-5" />
           <input
             type="email"
             {...register("email")}
             placeholder="tu.correo@ejemplo.com"
-            className="w-full pl-10 pr-3 py-3 border border-gray-600 rounded-xl shadow-lg bg-gray-800
-              focus:outline-none focus:ring-2 focus:ring-yellow-600 transition text-sm text-gray-800"
+            className="w-full pl-10 pr-10 py-3 border border-gray-200 rounded-xl shadow-sm bg-white
+              focus:outline-none focus:ring-2 focus:ring-yellow-300 transition text-sm !text-gray-700"
           />
         </div>
         {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>}
@@ -69,20 +69,20 @@ export default function AuthForm({ mode }: Props) {
 
       {/* Password */}
       <div>
-        <label className="block text-center font-semibold text-gray-700 mb-1">Contraseña</label>
+        <label className="block text-center font-semibold !text-writhe-500 mb-1">Contraseña</label>
         <div className="relative">
-          <Lock className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
+          <Lock className="absolute left-3 top-3.5 text-gray-800 w-5 h-5" />
           <input
             type={showPassword ? "text" : "password"}
             {...register("password")}
             placeholder="Ingresa tu contraseña"
             className="w-full pl-10 pr-10 py-3 border border-gray-200 rounded-xl shadow-sm bg-white
-              focus:outline-none focus:ring-2 focus:ring-yellow-300 transition text-sm text-gray-800"
+              focus:outline-none focus:ring-2 focus:ring-yellow-300 transition text-sm !text-gray-700"
           />
           <button
             type="button"
             onClick={() => setShowPassword(!showPassword)}
-            className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600"
+            className="absolute right-3 top-3.5 !text-gray-800 hover:text-gray-800"
           >
             {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
@@ -93,15 +93,15 @@ export default function AuthForm({ mode }: Props) {
       {/* Confirm password */}
       {mode === "register" && (
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Confirmar contraseña</label>
+          <label className="block text-center font-semibold !text-writhe-500 mb-1">Confirmar contraseña</label>
           <div className="relative">
-            <Lock className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
+            <Lock className="absolute left-3 top-3.5 text-gray-800 w-5 h-5" />
             <input
               type={showConfirm ? "text" : "password"}
               {...register("confirmPassword")}
               placeholder="Confirma tu contraseña"
               className="w-full pl-10 pr-10 py-3 border border-gray-200 rounded-xl shadow-sm bg-white
-                focus:outline-none focus:ring-2 focus:ring-yellow-300 transition text-sm"
+                focus:outline-none focus:ring-2 focus:ring-yellow-300 transition text-sm !text-gray-700"
             />
             <button
               type="button"
@@ -121,7 +121,7 @@ export default function AuthForm({ mode }: Props) {
       <button
         type="submit"
         disabled={isSubmitting}
-        className="w-full bg-[#d4af37] hover:bg-[#c09c32] active:scale-95 text-gray-600
+        className="w-full bg-[#d4af37] hover:bg-[#c09c32] active:scale-95 !text-Writhe-600
           font-semibold py-3 rounded-xl transition-all shadow-sm"
       >
         {isSubmitting ? "Procesando..." : mode === "login" ? "Iniciar sesión" : "Registrarme"}
@@ -130,7 +130,7 @@ export default function AuthForm({ mode }: Props) {
       {/* Divider */}
       <div className="flex items-center justify-center gap-2 my-2">
         <div className="h-px bg-gray-300 w-1/3" />
-        <span className="text-gray-500 text-sm">O continúa con</span>
+        <span className="!text-Writhe-500 text-sm">O continúa con</span>
         <div className="h-px bg-gray-300 w-1/3" />
       </div>
 
@@ -138,16 +138,16 @@ export default function AuthForm({ mode }: Props) {
 
       {/* Toggle */}
       {mode === "login" ? (
-        <p className="text-sm text-gray-500 text-center mt-3">
+        <p className="text-sm !text-Writhe-500 text-center mt-3">
           ¿No tienes cuenta?{" "}
           <a href="/register" className="text-[#d4af37] font-semibold hover:underline">
             Regístrate
           </a>
         </p>
       ) : (
-        <p className="text-sm text-gray-500 text-center mt-3">
+        <p className="text-sm !text-Writhe-500 text-center mt-3">
           ¿Ya tienes cuenta?{" "}
-          <a href="/login" className="text-[#d4af37] font-semibold hover:underline">
+          <a href="/login" className="!text-Writhe-500 font-semibold hover:underline">
             Inicia sesión
           </a>
         </p>
