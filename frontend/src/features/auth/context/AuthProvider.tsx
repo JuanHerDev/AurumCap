@@ -10,6 +10,8 @@ import {
   meRequest,
 } from "@/features/auth/services/auth.service";
 
+import { changePasswordRequest, updateUserRequest } from "@/features/auth/services/auth.service";
+
 import { setAccessToken, getAccessToken } from "@/lib/api";
 
 type User = {
@@ -26,6 +28,8 @@ type AuthContextType = {
   register: (email: string, password: string, name?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  updateUser: (userData: { full_name?: string, picture_url?: string}) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -110,6 +114,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     router.push("/login");
   };
 
+  const changePassword = async (currentPassword: string, newPassword: string) => {
+    try {
+      await changePasswordRequest({
+        current_password: currentPassword,
+        new_password: newPassword
+      });
+    } catch (error) {
+      console.error("Error changing password:", error);
+      throw error;
+    }
+  };
+
+  const updateUser = async (userData: { full_name?: string, picture_url?: string }) => {
+    try {
+      const updatedUser = await updateUserRequest(userData);
+      setUser(updatedUser);
+    } catch (error) {
+      console.error("Error updating user:", error);
+      throw error;
+    }
+  };
+
 
   const protectedRoutes = ["/dashboard", "/profile", "/investments"];
   const isProtected = protectedRoutes.some((r) => pathname.startsWith(r));
@@ -122,7 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, login, register, logout, refreshUser }}
+      value={{ user, loading, login, register, logout, refreshUser, changePassword, updateUser }}
     >
       {children}
     </AuthContext.Provider>

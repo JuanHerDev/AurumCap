@@ -31,3 +31,52 @@ export async function meRequest() {
   const res = await api.get("/auth/me");
   return res.data;
 }
+
+export interface ChangePasswordData {
+  current_password: string;
+  new_password: string;
+}
+
+export interface UserUpdateData {
+  full_name?: string;
+  picture_url?: string;
+}
+
+/**
+ * Cambia la contraseña del usuario actual
+ */
+export async function changePasswordRequest(passwordData: ChangePasswordData): Promise<{ message: string; detail: string }> {
+  try {
+    const res = await api.put("/auth/me/password", passwordData);
+    return res.data;
+  } catch (error: any) {
+    const errorMessage = error.response?.data?.detail || 'Error al cambiar la contraseña';
+    throw new Error(errorMessage);
+  }
+}
+
+/**
+ * Obtiene la información del usuario actual
+ */
+export async function getCurrentUserRequest() {
+  try {
+    const res = await api.get("/users/me");
+    return res.data;
+  } catch (error: any) {
+    const errorMessage = error.response?.data?.detail || 'Error al obtener información del usuario';
+    throw new Error(errorMessage);
+  }
+}
+
+/**
+ * Actualiza la información del usuario actual
+ */
+export async function updateUserRequest(userData: UserUpdateData) {
+  try {
+    const res = await api.put("/users/me", userData);
+    return res.data;
+  } catch (error: any) {
+    const errorMessage = error.response?.data?.detail || 'Error al actualizar la información del usuario';
+    throw new Error(errorMessage);
+  }
+}
