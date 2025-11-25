@@ -236,84 +236,89 @@ export default function InvestmentForm({ open, onClose, onSubmit, initial }: Pro
   }
 
   async function submit(e?: React.FormEvent) {
-  if (e) e.preventDefault();
-  setSubmitting(true);
-  setError(null);
-  
-  try {
-    // Validaciones básicas mejoradas
-    if (!form.symbol.trim()) {
-      throw new Error("El símbolo es requerido");
-    }
-    if (!form.asset_name.trim()) {
-      throw new Error("El nombre del activo es requerido");
-    }
-    if (!form.invested_amount || Number(form.invested_amount) <= 0) {
-      throw new Error("El monto invertido debe ser mayor a 0");
-    }
-    if (!form.quantity || Number(form.quantity) <= 0) {
-      throw new Error("La cantidad debe ser mayor a 0");
-    }
-
-    // Validar formato del símbolo
-    const symbol = form.symbol.trim().toUpperCase();
-    if (!/^[A-Z0-9-]+$/.test(symbol)) {
-      throw new Error("El símbolo solo puede contener letras, números y guiones");
-    }
-
-    // Preparar payload con conversión explícita de tipos
-    const investedAmount = parseFloat(form.invested_amount);
-    const quantity = parseFloat(form.quantity);
+    if (e) e.preventDefault();
+    setSubmitting(true);
+    setError(null);
     
-    const payload: any = {
-      asset_type: form.asset_type,
-      symbol: symbol,
-      asset_name: form.asset_name.trim(),
-      invested_amount: investedAmount,
-      quantity: quantity,
-      currency: form.currency,
-    };
+    try {
+      // Validaciones básicas mejoradas
+      if (!form.symbol.trim()) {
+        throw new Error("El símbolo es requerido");
+      }
+      if (!form.asset_name.trim()) {
+        throw new Error("El nombre del activo es requerido");
+      }
+      if (!form.invested_amount || Number(form.invested_amount) <= 0) {
+        throw new Error("El monto invertido debe ser mayor a 0");
+      }
+      if (!form.quantity || Number(form.quantity) <= 0) {
+        throw new Error("La cantidad debe ser mayor a 0");
+      }
 
-    // Campos opcionales - solo incluirlos si tienen valor
-    if (form.platform_id && form.platform_id !== "") {
-      payload.platform_id = parseInt(form.platform_id);
-    }
-    if (form.platform_specific_id?.trim()) {
-      payload.platform_specific_id = form.platform_specific_id.trim();
-    }
-    if (form.coingecko_id?.trim()) {
-      payload.coingecko_id = form.coingecko_id.trim().toLowerCase();
-    }
-    if (form.twelvedata_id?.trim()) {
-      payload.twelvedata_id = form.twelvedata_id.trim();
-    }
-    if (form.notes?.trim()) {
-      payload.notes = form.notes.trim();
-    }
+      // CORRECCIÓN: Validar formato del símbolo - PERMITIR PUNTOS
+      const symbol = form.symbol.trim().toUpperCase();
+      if (!/^[A-Z0-9.-]+$/.test(symbol)) {
+        throw new Error("El símbolo solo puede contener letras, números, guiones y puntos");
+      }
 
-    // Manejar purchase_price - REDONDEAR A 6 DECIMALES
-    if (form.purchase_price && form.purchase_price !== "") {
-      payload.purchase_price = parseFloat(parseFloat(form.purchase_price).toFixed(6));
-    } else {
-      // Calcular automáticamente si no se proporciona y REDONDEAR
-      const calculatedPrice = investedAmount / quantity;
-      payload.purchase_price = parseFloat(calculatedPrice.toFixed(6));
-    }
+      // Validar longitud del símbolo
+      if (symbol.length < 1 || symbol.length > 20) {
+        throw new Error("El símbolo debe tener entre 1 y 20 caracteres");
+      }
 
-    console.log("📤 Payload final para enviar:", JSON.stringify(payload, null, 2));
-    await onSubmit(payload);
-    
-    // Cerrar el modal si es exitoso
-    onClose();
-    
-  } catch (err: any) {
-    console.error("❌ Error en submit:", err);
-    setError(err.message || "Error al procesar el formulario");
-    throw err;
-  } finally {
-    setSubmitting(false);
+      // Preparar payload con conversión explícita de tipos
+      const investedAmount = parseFloat(form.invested_amount);
+      const quantity = parseFloat(form.quantity);
+      
+      const payload: any = {
+        asset_type: form.asset_type,
+        symbol: symbol,
+        asset_name: form.asset_name.trim(),
+        invested_amount: investedAmount,
+        quantity: quantity,
+        currency: form.currency,
+      };
+
+      // Campos opcionales - solo incluirlos si tienen valor
+      if (form.platform_id && form.platform_id !== "") {
+        payload.platform_id = parseInt(form.platform_id);
+      }
+      if (form.platform_specific_id?.trim()) {
+        payload.platform_specific_id = form.platform_specific_id.trim();
+      }
+      if (form.coingecko_id?.trim()) {
+        payload.coingecko_id = form.coingecko_id.trim().toLowerCase();
+      }
+      if (form.twelvedata_id?.trim()) {
+        payload.twelvedata_id = form.twelvedata_id.trim();
+      }
+      if (form.notes?.trim()) {
+        payload.notes = form.notes.trim();
+      }
+
+      // Manejar purchase_price - REDONDEAR A 6 DECIMALES
+      if (form.purchase_price && form.purchase_price !== "") {
+        payload.purchase_price = parseFloat(parseFloat(form.purchase_price).toFixed(6));
+      } else {
+        // Calcular automáticamente si no se proporciona y REDONDEAR
+        const calculatedPrice = investedAmount / quantity;
+        payload.purchase_price = parseFloat(calculatedPrice.toFixed(6));
+      }
+
+      console.log("📤 Payload final para enviar:", JSON.stringify(payload, null, 2));
+      await onSubmit(payload);
+      
+      // Cerrar el modal si es exitoso
+      onClose();
+      
+    } catch (err: any) {
+      console.error("❌ Error en submit:", err);
+      setError(err.message || "Error al procesar el formulario");
+      throw err;
+    } finally {
+      setSubmitting(false);
+    }
   }
-}
 
   if (!open) return null;
 
@@ -371,11 +376,14 @@ export default function InvestmentForm({ open, onClose, onSubmit, initial }: Pro
                 name="symbol"
                 value={form.symbol}
                 onChange={onChange}
-                placeholder="Ej: AAPL, BTC, TSLA"
+                placeholder="Ej: AAPL, BTC, TSLA, BRK.B"
                 required
                 disabled={submitting}
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#B59F50] focus:border-transparent uppercase disabled:opacity-50"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                Letras, números, guiones (-) y puntos (.) permitidos
+              </p>
             </div>
 
             {/* Nombre del Activo */}
@@ -438,13 +446,16 @@ export default function InvestmentForm({ open, onClose, onSubmit, initial }: Pro
               <input
                 name="purchase_price"
                 type="number"
-                step="0.01"
+                step="0.000001"
                 value={form.purchase_price}
                 onChange={onChange}
                 placeholder="Se calcula automáticamente si se deja vacío"
                 disabled={submitting}
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#B59F50] focus:border-transparent disabled:opacity-50"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                Se calculará automáticamente como: Monto / Cantidad
+              </p>
             </div>
 
             {/* Moneda */}

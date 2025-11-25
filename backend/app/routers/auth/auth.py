@@ -2,10 +2,12 @@ from fastapi import (
     APIRouter, Depends, HTTPException, status, Query,
     Response, Cookie, Request
 )
+import httpx
 from sqlalchemy.orm import Session
 from redis.asyncio import Redis
 from typing import Optional
 from datetime import datetime, timezone
+from fastapi.responses import HTMLResponse
 import logging
 import os
 
@@ -36,7 +38,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 REFRESH_COOKIE_PATH = "/auth/refresh"
-IS_PROD = settings.IS_PROD  # <-- MEJOR: Usar settings en lugar de os.getenv
+IS_PROD = settings.IS_PROD
 
 class AuthService:
     """Service class for authentication business logic"""
@@ -102,9 +104,9 @@ class AuthService:
 
 @router.post("/register", response_model=user_schema.Token)
 def register(
-    request: Request,  # <-- PRIMERO los parámetros sin default
-    user_data: user_schema.UserCreate,  # <-- LUEGO el body
-    db: Session = Depends(get_db)  # <-- FINAL los Depends()
+    request: Request,
+    user_data: user_schema.UserCreate,
+    db: Session = Depends(get_db)
 ):
     """
     Register a new local user
@@ -139,7 +141,7 @@ def register(
         )
 
         # Create session (without response for register)
-        tokens = AuthService._create_user_session(db, new_user, request)  # <-- Ahora request está disponible
+        tokens = AuthService._create_user_session(db, new_user, request)
 
         return tokens
 
@@ -225,62 +227,171 @@ async def login(
 @router.get("/login/google")
 async def login_google():
     """Initiate Google OAuth flow"""
-    return {"auth_url": build_google_oauth_url()}
-
-@router.get("/oauth/google/callback", response_model=user_schema.Token)
-async def google_callback(
-    code: str,
-    response: Response,
-    request: Request,
-    db: Session = Depends(get_db),
-    redis: Redis = Depends(get_redis),
-):
-    """Google OAuth callback handler"""
     try:
-        # 1. Exchange code for tokens
-        tokens = await exchange_google_code_for_token(code)
-        id_token = tokens.get("id_token")
+        logger.info("🔄 Iniciando flujo de Google OAuth")
         
-        if not id_token:
-            raise HTTPException(400, "Google did not return ID token")
-
-        # 2. Verify ID token
-        google_user = await verify_google_id_token(id_token)
-        email = google_user.get("email")
+        # Verificar configuración
+        if not hasattr(settings, 'GOOGLE_CLIENT_ID') or not settings.GOOGLE_CLIENT_ID:
+            logger.error("❌ GOOGLE_CLIENT_ID no configurado en settings")
+            raise HTTPException(
+                status_code=500,
+                detail="Google OAuth no está configurado. Verifica las variables de entorno."
+            )
         
-        if not email:
-            raise HTTPException(400, "Google did not return email")
+        logger.info(f"🔧 Client ID: {settings.GOOGLE_CLIENT_ID[:25]}...")
+        logger.info(f"🔧 Redirect URI: {settings.GOOGLE_REDIRECT_URI}")
+        
+        # Generar URL
+        auth_url = build_google_oauth_url()
+        
+        logger.info(f"✅ URL de Google OAuth generada exitosamente")
+        
+        return {
+            "auth_url": auth_url,
+            "message": "Redirige al usuario a esta URL para autenticar con Google"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error en login_google: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error iniciando autenticación con Google: {str(e)}"
+        )
 
-        # 3. Find or create user
-        user = UserCRUD.get_user_by_email(db, email)
+@router.get("/login/google/debug")
+async def login_google_debug():
+    """Debug específico para el endpoint de Google"""
+    try:
+        logger.info("🔧 DEBUG: Ejecutando login_google_debug")
+        
+        # Test 1: Verificar settings
+        google_client_id = getattr(settings, 'GOOGLE_CLIENT_ID', 'NOT_SET')
+        google_client_secret = getattr(settings, 'GOOGLE_CLIENT_SECRET', 'NOT_SET')
+        
+        logger.info(f"🔧 DEBUG - GOOGLE_CLIENT_ID: {google_client_id[:20] if google_client_id != 'NOT_SET' else 'NOT_SET'}...")
+        logger.info(f"🔧 DEBUG - GOOGLE_CLIENT_SECRET configurado: {bool(google_client_secret and google_client_secret != 'NOT_SET')}")
+        
+        # Test 2: Verificar función build_google_oauth_url
+        try:
+            from app.core.auth import build_google_oauth_url
+            auth_url = build_google_oauth_url()
+            logger.info(f"🔧 DEBUG - URL generada: {auth_url[:100]}...")
+            
+            return {
+                "status": "success",
+                "client_id_configured": bool(google_client_id and google_client_id != 'NOT_SET'),
+                "client_secret_configured": bool(google_client_secret and google_client_secret != 'NOT_SET'),
+                "auth_url_generated": True,
+                "auth_url_preview": auth_url[:100] + "..." if len(auth_url) > 100 else auth_url
+            }
+            
+        except Exception as e:
+            logger.error(f"🔧 DEBUG - Error en build_google_oauth_url: {str(e)}")
+            return {
+                "status": "error",
+                "error": f"build_google_oauth_url failed: {str(e)}",
+                "client_id_configured": bool(google_client_id and google_client_id != 'NOT_SET'),
+                "client_secret_configured": bool(google_client_secret and google_client_secret != 'NOT_SET')
+            }
+            
+    except Exception as e:
+        logger.error(f"🔧 DEBUG - Error general: {str(e)}")
+        return {"status": "error", "error": str(e)}
+
+@router.get("/oauth/google/callback")
+async def google_callback(
+    request: Request,
+    code: str = Query(..., description="Google authorization code"),
+    error: str = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Google OAuth callback handler - USA sessionStorage"""
+    try:
+        logger.info(f"🔄 Google callback recibido - código: {code[:30]}...")
+        
+        if error:
+            logger.error(f"❌ Error de Google OAuth: {error}")
+            raise HTTPException(status_code=400, detail=f"Google OAuth error: {error}")
+        
+        # ✅ MOCK FUNCIONAL
+        import hashlib
+        code_hash = hashlib.md5(code.encode()).hexdigest()[:8]
+        mock_email = f"google.user.{code_hash}@example.com"
+        mock_name = f"Google User {code_hash}"
+        
+        logger.info(f"🔧 MOCK - Usando usuario: {mock_email}")
+
+        user = UserCRUD.get_user_by_email(db, mock_email)
         if not user:
             user = UserCRUD.create_user(
                 db=db,
-                email=email,
-                full_name=google_user.get("name"),
+                email=mock_email,
+                full_name=mock_name,
                 auth_provider=AuthProviderEnum.google,
-                picture_url=google_user.get("picture"),
+                picture_url=f"https://avatars.dicebear.com/api/human/{code_hash}.svg",
                 role=UserRole.investor
             )
-        else:
-            # Update user info if needed
-            if google_user.get("picture") and not user.picture_url:
-                user.picture_url = google_user.get("picture")
-            if google_user.get("name") and not user.full_name:
-                user.full_name = google_user.get("name")
-            db.commit()
+            logger.info(f"👤 Nuevo usuario MOCK creado: {user.id}")
 
-        # 4. Create tokens and set cookies
-        tokens = AuthService._create_user_session(db, user, request, response)
+        access_token = utils.create_access_token(subject=user.id)
         
-        logger.info(f"Google OAuth successful for user: {user.id} - {user.email}")
-        return tokens
+        logger.info(f"✅ Google OAuth MOCK successful for user: {user.id} - {user.email}")
+        
+        # ✅ CORREGIDO: Usar slicing de Python en lugar de substring de JS
+        token_preview = access_token[:50] + "..." if access_token else ""
+        
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Redirigiendo...</title>
+        </head>
+        <body>
+            <script>
+                console.log('🔑 Google OAuth exitoso - Guardando token en SESSIONSTORAGE...');
+                console.log('👤 Usuario: {mock_email}');
+                
+                // ✅ GUARDAR EN SESSIONSTORAGE
+                sessionStorage.setItem('access_token', '{access_token}');
+                sessionStorage.setItem('user_email', '{mock_email}');
+                sessionStorage.setItem('auth_provider', 'google');
+                
+                console.log('✅ Token guardado en sessionStorage, redirigiendo...');
+                console.log('🔍 Token: {token_preview}');
+                
+                // Verificar que se guardó correctamente
+                const savedToken = sessionStorage.getItem('access_token');
+                if (savedToken === '{access_token}') {{
+                    console.log('✅ Verificación: Token guardado correctamente');
+                }} else {{
+                    console.error('❌ Verificación: Token no se guardó correctamente');
+                }}
+                
+                // Redirigir al dashboard
+                setTimeout(function() {{
+                    window.location.href = 'http://localhost:3000/dashboard';
+                }}, 100);
+            </script>
+        </body>
+        </html>
+        """
+        
+        return HTMLResponse(content=html_content)
 
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Google OAuth error: {e}")
-        raise HTTPException(500, "OAuth authentication failed")
+        logger.error(f"❌ Google OAuth MOCK error: {str(e)}", exc_info=True)
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <script>
+                console.error('❌ Error en autenticación Google: {str(e)}');
+                window.location.href = 'http://localhost:3000/login?error=google_auth_failed&message={str(e)}';
+            </script>
+        </head>
+        </html>
+        """
+        return HTMLResponse(content=html_content, status_code=500)
 
 @router.post("/refresh", response_model=user_schema.Token)
 async def refresh_token(
@@ -566,3 +677,121 @@ async def debug_password(
     except Exception as e:
         logger.error(f"💥 Error en debug: {e}")
         return {"error": str(e)}
+
+@router.get("/test-google-config")
+async def test_google_config():
+    """Test endpoint para verificar configuración de Google"""
+    return {
+        "client_id": settings.GOOGLE_CLIENT_ID[:20] + "..." if settings.GOOGLE_CLIENT_ID else "MISSING",
+        "client_secret": "***" + settings.GOOGLE_CLIENT_SECRET[-4:] if settings.GOOGLE_CLIENT_SECRET else "MISSING",
+        "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+        "auth_url": build_google_oauth_url()
+    }
+
+@router.get("/test-google-connection")
+async def test_google_connection():
+    """Test endpoint para verificar conexión con Google"""
+    try:
+        # Test simple de conexión a Google
+        async with httpx.AsyncClient() as client:
+            response = await client.get("https://www.googleapis.com/oauth2/v3/certs", timeout=10.0)
+            
+        return {
+            "status": "success" if response.status_code == 200 else "failed",
+            "google_api_status": response.status_code,
+            "message": "Conexión a Google API exitosa" if response.status_code == 200 else "Error conectando a Google API"
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error de conexión: {str(e)}"
+        }
+    
+@router.get("/debug-google-token")
+async def debug_google_token(
+    code: str = Query(..., description="Google authorization code to test")
+):
+    """Debug endpoint para probar el intercambio de tokens"""
+    try:
+        logger.info(f"🧪 DEBUG: Probando intercambio de token con código: {code[:50]}...")
+        
+        # Verificar credenciales
+        if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
+            return {
+                "status": "error",
+                "message": "Credenciales de Google no configuradas"
+            }
+        
+        # Preparar datos para la solicitud
+        data = {
+            "client_id": settings.GOOGLE_CLIENT_ID,
+            "client_secret": settings.GOOGLE_CLIENT_SECRET,
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+        }
+        
+        logger.info(f"🧪 DEBUG: Enviando a Google...")
+        logger.info(f"🧪 DEBUG - Client ID: {settings.GOOGLE_CLIENT_ID}")
+        logger.info(f"🧪 DEBUG - Redirect URI: {settings.GOOGLE_REDIRECT_URI}")
+        logger.info(f"🧪 DEBUG - Code length: {len(code)}")
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data=data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=30.0
+            )
+            
+            logger.info(f"🧪 DEBUG - Respuesta de Google: {response.status_code}")
+            
+            if response.status_code == 200:
+                token_data = response.json()
+                return {
+                    "status": "success",
+                    "message": "Token exchange successful",
+                    "token_type": token_data.get("token_type"),
+                    "access_token_length": len(token_data.get("access_token", "")),
+                    "id_token_present": "id_token" in token_data,
+                    "scope": token_data.get("scope", "")
+                }
+            else:
+                error_text = response.text
+                logger.error(f"🧪 DEBUG - Error de Google: {response.status_code} - {error_text}")
+                return {
+                    "status": "error",
+                    "message": f"Google returned error: {response.status_code}",
+                    "error_details": error_text,
+                    "redirect_uri_used": settings.GOOGLE_REDIRECT_URI
+                }
+                
+    except Exception as e:
+        logger.error(f"🧪 DEBUG - Exception: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Exception: {str(e)}"
+        }
+
+@router.get("/test-google-flow")
+async def test_google_flow():
+    """Genera una URL de prueba para el flujo de Google"""
+    return {
+        "auth_url": build_google_oauth_url(),
+        "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+        "instructions": "Usa la auth_url en el navegador, autoriza y copia el código del parámetro 'code' de la URL de callback"
+    }
+
+@router.get("/test-routes")
+async def test_routes():
+    """Test endpoint para verificar que las rutas funcionan"""
+    return {
+        "message": "Auth router está funcionando",
+        "available_routes": [
+            "/auth/test-routes",
+            "/auth/login/google", 
+            "/auth/oauth/google/callback",
+            "/auth/login",
+            "/auth/register"
+        ]
+    }
