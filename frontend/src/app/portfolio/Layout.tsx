@@ -1,4 +1,4 @@
-// src/app/portfolio/layout.tsx
+// app/portfolio/layout.tsx
 import { AuthChecker } from "@/components/AuthChecker";
 
 export default function PortfolioLayout({
