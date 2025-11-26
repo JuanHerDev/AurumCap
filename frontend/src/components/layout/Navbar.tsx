@@ -30,14 +30,22 @@ export default function Navbar() {
   // Determinar si estamos en una página principal
   const isMainPage = ['/dashboard', '/portfolio', '/simulator', '/profile'].includes(pathname);
 
+  // Función para redirigir a la landing page
+  const handleLogoClick = () => {
+    router.push('/');
+  };
+
   return (
     <>
       {/* Top Navbar - Visible en todos los dispositivos */}
       <nav className="flex items-center justify-between p-4 bg-[#B59F50] text-white shadow-md">
-        {/* Logo */}
-        <div className="font-bold text-2xl text-white drop-shadow-md">
+        {/* Logo - Ahora es clickable */}
+        <button
+          onClick={handleLogoClick}
+          className="font-bold text-2xl text-white drop-shadow-md hover:opacity-80 transition-opacity duration-200 cursor-pointer"
+        >
           AurumCap
-        </div>
+        </button>
 
         {/* Desktop Navigation - Solo visible en md+ */}
         <div className="hidden md:flex items-center gap-6">

@@ -30,6 +30,14 @@ export default function Dashboard() {
   const { user } = useAuth();
   const router = useRouter();
 
+  // Obtener el nombre del usuario - priorizando diferentes campos posibles
+  const getUserName = () => {
+    if (!user) return "Inversionista";
+    
+    // Prioridad de campos de nombre
+    return user.full_name || user.name || user.username || user.email?.split('@')[0] || "Inversionista";
+  };
+
   // Simular obtención de datos del portafolio
   useEffect(() => {
     const fetchPortfolioData = async () => {
@@ -88,6 +96,7 @@ export default function Dashboard() {
 
   const growth = calculateGrowth();
   const totalBalance = portfolioSummary?.total_balance || 0;
+  const userName = getUserName();
 
   // Formatear datos para el gráfico
   const chartData = portfolioHistory.map(item => ({
@@ -115,7 +124,7 @@ export default function Dashboard() {
       <header className="bg-white px-4 py-4 border-b border-gray-200 sticky top-0 z-10">
         <div className="flex justify-between items-center max-w-6xl mx-auto">
           <h1 className="text-xl font-bold">
-            Hola, <span className="text-[#B59F50]">{user?.full_name || "Alex"}</span>
+            Hola, <span className="text-[#B59F50]">{userName}</span>
           </h1>
           <div className="flex items-center gap-2 text-xs text-gray-600">
             <div className="w-2 h-2 bg-green-500 rounded-full"></div>

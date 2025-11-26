@@ -40,7 +40,7 @@ export default function AuthForm({ mode }: Props) {
       if (mode === "login") {
         await login(data.email, data.password);
       } else {
-        await registerUser(data.email, data.password, data.full_name);
+        await registerUser(data.email, data.password, data.name);
       }
     } catch (err: any) {
       alert(err?.response?.data?.detail || "Error al procesar la solicitud");
@@ -60,7 +60,7 @@ export default function AuthForm({ mode }: Props) {
             type="email"
             {...register("email")}
             placeholder="tu.correo@ejemplo.com"
-            className="w-full pl-10 pr-3 py-3 border border-gray-600 rounded-xl shadow-lg bg-gray-800
+            className="w-full pl-10 pr-3 py-3 border border-gray-600 rounded-xl shadow-lg bg-white
               focus:outline-none focus:ring-2 focus:ring-yellow-600 transition text-sm text-gray-800"
           />
         </div>
