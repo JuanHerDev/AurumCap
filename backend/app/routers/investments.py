@@ -28,6 +28,7 @@ from app.crud.investment import (
 from app.deps.auth import get_current_user
 from app.models.user import User
 from app.models.investment import Investment
+from app.models.platform import Platform
 
 # External services
 from app.services.prices_crypto import get_crypto_price
@@ -41,6 +42,16 @@ router = APIRouter(
     tags=["investments"]
 )
 
+# Investment strategies
+INVESTMENT_STRATEGIES = [
+    {"value": "dca", "label": "DCA (Promedio de Costo en Dólares)"},
+    {"value": "lump_sum", "label": "Inversión Única"},
+    {"value": "swing_trading", "label": "Swing Trading"},
+    {"value": "day_trading", "label": "Day Trading"},
+    {"value": "long_term", "label": "Inversión a Largo Plazo"},
+    {"value": "arbitrage", "label": "Arbitraje"},
+    {"value": "other", "label": "Otra Estrategia"},
+]
 
 class PortfolioCalculator:
     """Enhanced portfolio calculation with aggregation features"""
@@ -393,7 +404,14 @@ def create_inv(
     """
     try:
         logger.info(f"🔄 [DEBUG] Creating/updating investment for user {current_user.id}")
-        logger.info(f"📦 [DEBUG] Payload received: symbol={payload.symbol}, platform_id={payload.platform_id}")
+        logger.info(f"📦 [DEBUG] Payload received: symbol={payload.symbol}, platform_id={payload.platform_id}, strategy={payload.investment_strategy}")
+        
+        # Si no se proporciona transaction_date, usar la fecha actual
+        if not payload.transaction_date:
+            payload.transaction_date = datetime.utcnow()
+            logger.info(f"📅 [DEBUG] Using current date as transaction date: {payload.transaction_date}")
+        else:
+            logger.info(f"📅 [DEBUG] Using provided transaction date: {payload.transaction_date}")
         
         # DEBUG: Ver todas las inversiones existentes del usuario
         all_user_investments = db.query(Investment).filter(
@@ -402,12 +420,12 @@ def create_inv(
         
         logger.info(f"📊 [DEBUG] User has {len(all_user_investments)} total investments:")
         for inv in all_user_investments:
-            logger.info(f"   📍 ID:{inv.id} - {inv.symbol} (platform: {inv.platform_id}), Qty: {inv.quantity}")
+            logger.info(f"   📍 ID:{inv.id} - {inv.symbol} (platform: {inv.platform_id}, strategy: {inv.investment_strategy}), Qty: {inv.quantity}")
         
-        # Buscar inversión existente con el mismo símbolo
-        logger.info(f"🔍 [DEBUG] Searching for existing investment: symbol={payload.symbol.upper()}, platform_id={payload.platform_id}")
+        # Buscar inversión existente con el mismo símbolo y criterios
+        logger.info(f"🔍 [DEBUG] Searching for existing investment: symbol={payload.symbol.upper()}, platform_id={payload.platform_id}, strategy={payload.investment_strategy}")
         
-        # Construir query de búsqueda
+        # Construir query de búsqueda con criterios mejorados
         query = db.query(Investment).filter(
             Investment.user_id == current_user.id,
             Investment.symbol == payload.symbol.upper()
@@ -419,8 +437,14 @@ def create_inv(
             logger.info(f"🔍 [DEBUG] Using platform filter: {payload.platform_id}")
         else:
             logger.info("🔍 [DEBUG] No platform filter - searching any platform")
-            # Si no hay platform_id, buscar cualquier inversión con el mismo símbolo
             query = query.filter(Investment.platform_id.is_(None))
+        
+        # Si investment_strategy está presente, filtrar por ella también
+        if payload.investment_strategy:
+            query = query.filter(Investment.investment_strategy == payload.investment_strategy)
+            logger.info(f"🔍 [DEBUG] Using strategy filter: {payload.investment_strategy}")
+        else:
+            logger.info("🔍 [DEBUG] No strategy filter - searching any strategy")
         
         existing_investment = query.first()
         
@@ -429,8 +453,8 @@ def create_inv(
         if existing_investment:
             # ACTUALIZAR inversión existente (STACKING)
             logger.info(f"📦 [DEBUG] STACKING with existing investment {existing_investment.id}")
-            logger.info(f"📦 [DEBUG] Existing: Qty={existing_investment.quantity}, Invested={existing_investment.invested_amount}")
-            logger.info(f"📦 [DEBUG] New: Qty={payload.quantity}, Invested={payload.invested_amount}")
+            logger.info(f"📦 [DEBUG] Existing: Qty={existing_investment.quantity}, Invested={existing_investment.invested_amount}, Strategy={existing_investment.investment_strategy}")
+            logger.info(f"📦 [DEBUG] New: Qty={payload.quantity}, Invested={payload.invested_amount}, Strategy={payload.investment_strategy}")
             
             try:
                 # Calcular nuevos valores con manejo seguro de Decimal
@@ -457,6 +481,19 @@ def create_inv(
                 existing_investment.purchase_price = new_purchase_price
                 existing_investment.updated_at = datetime.utcnow()
                 
+                # Actualizar campos adicionales si están presentes en el payload
+                if payload.investment_strategy and not existing_investment.investment_strategy:
+                    existing_investment.investment_strategy = payload.investment_strategy
+                    logger.info(f"📝 [DEBUG] Updated strategy to: {payload.investment_strategy}")
+                
+                if payload.transaction_date:
+                    existing_investment.transaction_date = payload.transaction_date
+                    logger.info(f"📝 [DEBUG] Updated transaction date to: {payload.transaction_date}")
+                
+                if payload.asset_name and not existing_investment.asset_name:
+                    existing_investment.asset_name = payload.asset_name
+                    logger.info(f"📝 [DEBUG] Updated asset name to: {payload.asset_name}")
+                
                 db.commit()
                 db.refresh(existing_investment)
                 
@@ -475,6 +512,13 @@ def create_inv(
         else:
             # CREAR nueva inversión
             logger.info(f"🆕 [DEBUG] No existing investment found - CREATING NEW")
+            
+            # Asegurar que purchase_price esté calculado si no se proporciona
+            if not payload.purchase_price and payload.quantity and payload.invested_amount:
+                calculated_price = Decimal(str(payload.invested_amount)) / Decimal(str(payload.quantity))
+                payload.purchase_price = calculated_price.quantize(Decimal('0.000001'))
+                logger.info(f"🧮 [DEBUG] Auto-calculated purchase price: {payload.purchase_price}")
+            
             result = create_investment(db, current_user.id, payload)
             message = f"New {payload.symbol} holding created"
             context_type = "new_holding"
@@ -495,15 +539,17 @@ def create_inv(
         for inv in all_symbol_holdings:
             total_invested_in_asset += Decimal(str(inv.invested_amount))
             total_quantity += Decimal(str(inv.quantity))
-            logger.info(f"   💰 Holding {inv.id}: Qty={inv.quantity}, Invested={inv.invested_amount}")
+            logger.info(f"   💰 Holding {inv.id}: Qty={inv.quantity}, Invested={inv.invested_amount}, Strategy={inv.investment_strategy}")
         
         average_price = total_invested_in_asset / total_quantity if total_quantity > 0 else Decimal("0")
         
         logger.info(f"📈 [DEBUG] Aggregate metrics: Total Qty={total_quantity}, Total Invested={total_invested_in_asset}, Avg Price={average_price}")
         
-        # Crear respuesta user-friendly
+        # Crear respuesta user-friendly usando to_dict() para incluir todos los campos
+        investment_dict = result.to_dict() if hasattr(result, 'to_dict') else result.__dict__
+        
         response_data = InvestmentCreateResponse(
-            **result.__dict__,
+            **investment_dict,
             holding_context=context_type,
             existing_holdings_count=len(all_symbol_holdings),
             total_invested_in_asset=total_invested_in_asset,
@@ -679,8 +725,13 @@ def patch_investment(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Investment not found"
             )
+        
+        # Prepare data for update - exclude unset and None values
+        update_data = payload.model_dump(exclude_unset=True, exclude_none=True)
 
-        return update_investment(db, inv, payload.model_dump(exclude_unset=True))
+        logger.info(f"[UPDATE] Updating investment {inv_id} for user {current_user.id} with data: {update_data}")
+
+        return update_investment(db, inv, update_data)
         
     except ValidationError as e:
         logger.warning(f"Validation error updating investment {inv_id}: {e}")
@@ -733,6 +784,92 @@ def remove_investment(
             detail="Failed to delete investment"
         )
 
+# NUEVOS ENDPOINTS PARA PLATAFORMAS Y ESTRATEGIAS
+
+@router.get("/platforms/list", response_model=List[Dict[str, Any]])
+async def get_platforms_list(
+    asset_type: Optional[str] = Query(None, description="Filter by supported asset type"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get available investment platforms
+    """
+    try:
+        from app.crud.investment import get_platforms_by_asset_type, get_active_platforms
+        
+        if asset_type:
+            # Mapear asset_type del frontend al backend
+            asset_type_mapping = {
+                "stocks": "stock",
+                "crypto": "crypto", 
+                "etf": "etf",
+                "bond": "bond",
+                "real_estate": "real_estate",
+                "commodity": "commodity",
+                "cash": "cash",
+                "otros": "other"
+            }
+            backend_asset_type = asset_type_mapping.get(asset_type, asset_type)
+            platforms = get_platforms_by_asset_type(db, backend_asset_type)
+        else:
+            platforms = get_active_platforms(db)
+        
+        # Format response for frontend
+        platform_list = []
+        for platform in platforms:
+            platform_list.append({
+                "value": platform.name,  # Usar name como value para el frontend
+                "label": platform.display_name,
+                "category": platform.type.value if platform.type else platform.type,
+                "icon": platform.icon,
+                "supported_asset_types": platform.supported_asset_types
+            })
+        
+        # Si no hay plataformas en la base de datos, devolver las predefinidas
+        if not platform_list:
+            platform_list = [
+                {"value": "binance", "label": "Binance", "category": "exchange", "icon": "binance", "supported_asset_types": ["crypto"]},
+                {"value": "hapi", "label": "Hapi", "category": "exchange", "icon": "hapi", "supported_asset_types": ["crypto"]},
+                {"value": "etoro", "label": "eToro", "category": "broker", "icon": "etoro", "supported_asset_types": ["stock", "crypto", "etf"]},
+                {"value": "interactive_brokers", "label": "Interactive Brokers", "category": "broker", "icon": "ibkr", "supported_asset_types": ["stock", "etf", "bond"]},
+                {"value": "coinbase", "label": "Coinbase", "category": "exchange", "icon": "coinbase", "supported_asset_types": ["crypto"]},
+                {"value": "kraken", "label": "Kraken", "category": "exchange", "icon": "kraken", "supported_asset_types": ["crypto"]},
+                {"value": "fidelity", "label": "Fidelity", "category": "broker", "icon": "fidelity", "supported_asset_types": ["stock", "etf", "bond"]},
+                {"value": "vanguard", "label": "Vanguard", "category": "broker", "icon": "vanguard", "supported_asset_types": ["stock", "etf", "bond"]},
+                {"value": "metatrader", "label": "MetaTrader", "category": "broker", "icon": "metatrader", "supported_asset_types": ["forex", "crypto"]},
+                {"value": "other", "label": "Otra Plataforma", "category": "other", "icon": "other", "supported_asset_types": ["stock", "crypto", "etf", "bond", "real_estate", "commodity", "other"]}
+            ]
+            
+            # Filtrar por asset_type si se especificó
+            if asset_type:
+                backend_asset_type = asset_type_mapping.get(asset_type, asset_type)
+                platform_list = [p for p in platform_list if backend_asset_type in p["supported_asset_types"]]
+        
+        return platform_list
+        
+    except Exception as e:
+        logger.error(f"Error retrieving platforms: {e}")
+        # Fallback to predefined platforms
+        return [
+            {"value": "binance", "label": "Binance", "category": "exchange"},
+            {"value": "hapi", "label": "Hapi", "category": "exchange"},
+            {"value": "etoro", "label": "eToro", "category": "broker"},
+            {"value": "interactive_brokers", "label": "Interactive Brokers", "category": "broker"},
+            {"value": "coinbase", "label": "Coinbase", "category": "exchange"},
+            {"value": "kraken", "label": "Kraken", "category": "exchange"},
+            {"value": "fidelity", "label": "Fidelity", "category": "broker"},
+            {"value": "vanguard", "label": "Vanguard", "category": "broker"},
+            {"value": "metatrader", "label": "MetaTrader", "category": "broker"},
+            {"value": "other", "label": "Otra Plataforma", "category": "other"}
+        ]
+
+@router.get("/strategies/list", response_model=List[Dict[str, str]])
+async def get_strategies_list():
+    """
+    Get all available investment strategies
+    """
+    return INVESTMENT_STRATEGIES
 
 
 @router.post(

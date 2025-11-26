@@ -98,6 +98,8 @@ def create_investment(db: Session, user_id: int, payload: InvestmentCreate) -> I
             quantity=payload.quantity,
             purchase_price=payload.purchase_price,
             currency=payload.currency,
+            investment_strategy=payload.investment_strategy,
+            transaction_date=payload.transaction_date,
             notes=payload.notes
         )
         

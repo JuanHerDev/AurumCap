@@ -219,6 +219,17 @@ class InvestmentCreate(InvestmentBase):
         ge=1,
         description="ID of the platform where asset is held"
     )
+
+    investment_strategy: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="Investment strategy or notes"
+    )
+
+    transaction_date: Optional[datetime] = Field(
+        None,
+        description="Date of the investment transaction (if its different from creation date)"
+    )
     
     notes: Optional[str] = Field(
         None,
@@ -226,20 +237,35 @@ class InvestmentCreate(InvestmentBase):
         description="Additional notes about the investment"
     )
 
+    @field_validator('platform_id', mode='before')
+    @classmethod
+    def validate_platform_id(cls, v):
+        """Validate and convert platform_id"""
+        if v is None or v == '':
+            return None
+        
+        try:
+            # If string, convert to int
+            if isinstance(v, str):
+                return int(v)
+            # If already int, validate
+            elif isinstance(v, int):
+                if v < 1:
+                    raise ValueError('Platform ID must be positive')
+                return v
+            else:
+                raise ValueError(f"Unsupported type for platform_id: {type(v)}")
+            
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Invalid platform_id value '{v}': {e}")
+            return None
+
     @field_validator('coingecko_id', 'twelvedata_id', 'platform_specific_id', mode='before')
     @classmethod
     def validate_api_ids(cls, v):
         """Validate API IDs"""
         if v is not None and not isinstance(v, str):
             raise ValueError('API ID must be a string')
-        return v
-
-    @field_validator('platform_id', mode='before')
-    @classmethod
-    def validate_platform_id(cls, v):
-        """Validate platform ID"""
-        if v is not None and v < 1:
-            raise ValueError('Platform ID must be positive')
         return v
 
 # UPDATE MODEL
@@ -251,7 +277,7 @@ class InvestmentUpdate(BaseModel):
         str_strip_whitespace=True,
         json_encoders={Decimal: clean_decimal},
         validate_assignment=True,
-        extra='forbid'
+        extra='ignore'  # Permitir campos extra del frontend
     )
 
     # Optional fields for partial updates
@@ -326,6 +352,17 @@ class InvestmentUpdate(BaseModel):
         max_length=128,
         description="TwelveData API ID"
     )
+
+    investment_strategy: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="Investment strategy used"
+    )
+
+    transaction_date: Optional[datetime] = Field(
+        None,
+        description="Date of the investment transaction"
+    )
     
     notes: Optional[str] = Field(
         None,
@@ -333,14 +370,130 @@ class InvestmentUpdate(BaseModel):
         description="Additional notes about the investment"
     )
 
-    # Reuse validators from base
-    _validate_symbol = field_validator('symbol', mode='before')(InvestmentBase.validate_symbol_format)
-    _validate_decimals = field_validator('invested_amount', 'quantity', 'purchase_price', mode='before')(
-        InvestmentBase.validate_and_convert_decimal
-    )
-    _validate_api_ids = field_validator('coingecko_id', 'twelvedata_id', 'platform_specific_id', mode='before')(
-        InvestmentCreate.validate_api_ids
-    )
+    # Campos de alias para compatibilidad con frontend
+    platform: Optional[str] = Field(None, description="Alias for platform_id (frontend compatibility)")
+    strategy: Optional[str] = Field(None, description="Alias for investment_strategy (frontend compatibility)")
+
+    @model_validator(mode='before')
+    @classmethod
+    def map_frontend_fields(cls, data):
+        """Map frontend field names to backend field names and convert types"""
+        if isinstance(data, dict):
+            # Mapear 'platform' -> 'platform_id' y convertir a int
+            if 'platform' in data:
+                platform_value = data['platform']
+                if platform_value is not None and platform_value != '':
+                    try:
+                        # Convertir string a int
+                        data['platform_id'] = int(platform_value)
+                        logger.info(f"🔧 Mapped 'platform' to 'platform_id': {data['platform_id']}")
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"⚠️ Could not convert platform value '{platform_value}' to int: {e}")
+                        # Si no se puede convertir, establecer como None
+                        data['platform_id'] = None
+                else:
+                    data['platform_id'] = None
+            
+            # Mapear 'strategy' -> 'investment_strategy'  
+            if 'strategy' in data and 'investment_strategy' not in data:
+                data['investment_strategy'] = data['strategy']
+                logger.info(f"🔧 Mapped 'strategy' to 'investment_strategy': {data['investment_strategy']}")
+            
+            # También manejar platform_id directamente si viene como string
+            if 'platform_id' in data and isinstance(data['platform_id'], str):
+                platform_id_value = data['platform_id']
+                if platform_id_value and platform_id_value != '':
+                    try:
+                        data['platform_id'] = int(platform_id_value)
+                        logger.info(f"🔧 Converted platform_id from string to int: {data['platform_id']}")
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"⚠️ Could not convert platform_id value '{platform_id_value}' to int: {e}")
+                        data['platform_id'] = None
+                else:
+                    data['platform_id'] = None
+            
+            # Remover campos mapeados para evitar duplicados
+            data.pop('platform', None)
+            data.pop('strategy', None)
+        
+        return data
+
+    # Validadores mejorados para manejar conversiones
+    @field_validator('platform_id', mode='before')
+    @classmethod
+    def validate_platform_id(cls, v):
+        """Validate and convert platform_id"""
+        if v is None or v == '':
+            return None
+            
+        try:
+            # Si es string, convertir a int
+            if isinstance(v, str):
+                return int(v)
+            # Si ya es int, validar
+            elif isinstance(v, int):
+                if v < 1:
+                    raise ValueError('Platform ID must be positive')
+                return v
+            else:
+                raise ValueError(f"Unsupported type for platform_id: {type(v)}")
+                
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Invalid platform_id value '{v}': {e}")
+            return None
+
+    @field_validator('symbol', mode='before')
+    @classmethod
+    def validate_symbol_format(cls, v):
+        """Validate and normalize symbol"""
+        if not v or not isinstance(v, str):
+            raise ValueError('Symbol must be a non-empty string')
+            
+        v = v.strip()
+        if not v:
+            raise ValueError('Symbol cannot be empty')
+            
+        if not SYMBOL_REGEX.fullmatch(v):
+            raise ValueError(
+                'Invalid symbol format. Only letters, numbers, dots, hyphens, and underscores are allowed'
+            )
+            
+        return v.upper()
+
+    @field_validator('invested_amount', 'quantity', 'purchase_price', mode='before')
+    @classmethod
+    def validate_and_convert_decimal(cls, v):
+        """Validate and convert to Decimal"""
+        if v is None:
+            return None
+            
+        try:
+            # Handle string, float, int inputs
+            if isinstance(v, (int, float)):
+                decimal_value = Decimal(str(v))
+            elif isinstance(v, str):
+                decimal_value = Decimal(v.strip())
+            elif isinstance(v, Decimal):
+                decimal_value = v
+            else:
+                raise ValueError(f"Unsupported type: {type(v)}")
+                
+            # Validate positive
+            if decimal_value < 0:
+                raise ValueError("Value must be positive")
+                
+            return decimal_value
+            
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid decimal value: {v}") from e
+
+    @field_validator('coingecko_id', 'twelvedata_id', 'platform_specific_id', mode='before')
+    @classmethod
+    def validate_api_ids(cls, v):
+        """Validate API IDs"""
+        if v is not None and not isinstance(v, str):
+            raise ValueError('API ID must be a string')
+        return v
 
     @model_validator(mode='after')
     def validate_update_consistency(self):
@@ -404,6 +557,10 @@ class InvestmentInDBBase(BaseModel):
     purchase_price: Decimal = Field(..., description="Price per unit at purchase")
     currency: CurrencyEnum = Field(..., description="Currency of the investment")
     
+    # Nuevos campos
+    investment_strategy: Optional[str] = Field(None, description="Investment strategy")
+    transaction_date: Optional[datetime] = Field(None, description="Transaction date")
+    
     # External IDs
     coingecko_id: Optional[str] = Field(None, description="CoinGecko API ID")
     twelvedata_id: Optional[str] = Field(None, description="TwelveData API ID")
@@ -442,8 +599,9 @@ class InvestmentOut(InvestmentInDBBase):
         description="Return on investment percentage"
     )
     
-    class Config:
-        json_encoders = {Decimal: clean_decimal}
+    model_config = ConfigDict(
+        json_encoders={Decimal: clean_decimal}
+    )
 
 class InvestmentCreateResponse(InvestmentOut):
     """Response schema with user-friendly context"""

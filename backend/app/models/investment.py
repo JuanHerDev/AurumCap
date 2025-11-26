@@ -30,7 +30,6 @@ class Investment(Base):
         nullable=True,
     )
 
-
     platform_specific_id = Column(String(255), nullable=True, index=True)
 
     asset_type = Column(
@@ -40,7 +39,6 @@ class Investment(Base):
     )
 
     symbol = Column(String(64), nullable=False, index=True)
-
 
     coingecko_id = Column(String(128), nullable=True, index=True)
     twelvedata_id = Column(String(128), nullable=True, index=True)
@@ -56,6 +54,9 @@ class Investment(Base):
         nullable=False,
         default=CurrencyEnum.USD,
     )
+
+    investment_strategy = Column(String(100), nullable=True, index=True)
+    transaction_date = Column(DateTime, nullable=True, index=True)
 
     created_at = Column(
         DateTime,
@@ -93,6 +94,8 @@ class Investment(Base):
             "quantity": float(self.quantity) if self.quantity else None,
             "purchase_price": float(self.purchase_price) if self.purchase_price else None,
             "currency": self.currency.value if self.currency else None,
+            "investment_strategy": self.investment_strategy,
+            "transaction_date": self.transaction_date.isoformat() if self.transaction_date else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "notes": self.notes,
