@@ -19,3 +19,5 @@ httpx
 aiohttp
 redis[asyncio]
 pycoingecko
+schedule
+websockets

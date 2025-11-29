@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 
 from app.db.database import get_db
 from app.deps.auth import get_current_user
-from services.crypto import CryptoServiceFactory
+from app.services.crypto import CryptoServiceFactory
 from app.models.user import User
 
 router = APIRouter(prefix="/crypto", tags=["crypto"])

@@ -141,29 +141,45 @@ class CryptoService:
                 return None
             
             market_data = coin_data.get('market_data', {})
+
+            current_price = market_data.get('current_price', {})
+            market_cap = market_data.get('market_cap', {})
+            total_volume = market_data.get('total_volume', {})
+            price_change_24h = market_data.get('price_change_24h', {})
+            price_change_percentage_24h = market_data.get('price_change_percentage_24h', {})
+            price_change_percentage_7d = market_data.get('price_change_percentage_7d', {})
+            price_change_percentage_30d = market_data.get('price_change_percentage_30d', {})
+            price_change_percentage_1y = market_data.get('price_change_percentage_1y', {})
+            ath_data = market_data.get('ath', {})
+            ath_change_percentage_data = market_data.get('ath_change_percentage', {})
+            ath_date_data = market_data.get('ath_date', {})
+            atl_data = market_data.get('atl', {})
+            atl_change_percentage_data = market_data.get('atl_change_percentage', {})
+            atl_date_data = market_data.get('atl_date', {})
+
             return {
-                'symbol': symbol.upper(),
-                'coin_id': coin_id,
-                'current_price': market_data.get('current_price', {}).get(self.base_currency),
-                'market_cap': market_data.get('market_cap', {}).get(self.base_currency),
-                'market_cap_rank': coin_data.get('market_cap_rank'),
-                'total_volume': market_data.get('total_volume', {}).get(self.base_currency),
-                'price_change_24h': market_data.get('price_change_24h', {}).get(self.base_currency),
-                'price_change_percentage_24h': market_data.get('price_change_percentage_24h', {}).get(self.base_currency),
-                'price_change_percentage_7d': market_data.get('price_change_percentage_7d', {}).get(self.base_currency),
-                'price_change_percentage_30d': market_data.get('price_change_percentage_30d', {}).get(self.base_currency),
-                'price_change_percentage_1y': market_data.get('price_change_percentage_1y', {}).get(self.base_currency),
-                'ath': market_data.get('ath', {}).get(self.base_currency),
-                'ath_change_percentage': market_data.get('ath_change_percentage', {}).get(self.base_currency),
-                'ath_date': market_data.get('ath_date', {}).get(self.base_currency),
-                'atl': market_data.get('atl', {}).get(self.base_currency),
-                'atl_change_percentage': market_data.get('atl_change_percentage', {}).get(self.base_currency),
-                'atl_date': market_data.get('atl_date', {}).get(self.base_currency),
-                'circulating_supply': market_data.get('circulating_supply'),
-                'total_supply': market_data.get('total_supply'),
-                'max_supply': market_data.get('max_supply'),
-                'last_updated': market_data.get('last_updated')
-            }
+            'symbol': symbol.upper(),
+            'coin_id': coin_id,
+            'current_price': current_price.get(self.base_currency) if isinstance(current_price, dict) else current_price,
+            'market_cap': market_cap.get(self.base_currency) if isinstance(market_cap, dict) else market_cap,
+            'market_cap_rank': coin_data.get('market_cap_rank'),
+            'total_volume': total_volume.get(self.base_currency) if isinstance(total_volume, dict) else total_volume,
+            'price_change_24h': price_change_24h.get(self.base_currency) if isinstance(price_change_24h, dict) else price_change_24h,
+            'price_change_percentage_24h': price_change_percentage_24h.get(self.base_currency) if isinstance(price_change_percentage_24h, dict) else price_change_percentage_24h,
+            'price_change_percentage_7d': price_change_percentage_7d.get(self.base_currency) if isinstance(price_change_percentage_7d, dict) else price_change_percentage_7d,
+            'price_change_percentage_30d': price_change_percentage_30d.get(self.base_currency) if isinstance(price_change_percentage_30d, dict) else price_change_percentage_30d,
+            'price_change_percentage_1y': price_change_percentage_1y.get(self.base_currency) if isinstance(price_change_percentage_1y, dict) else price_change_percentage_1y,
+            'ath': ath_data.get(self.base_currency) if isinstance(ath_data, dict) else ath_data,
+            'ath_change_percentage': ath_change_percentage_data.get(self.base_currency) if isinstance(ath_change_percentage_data, dict) else ath_change_percentage_data,
+            'ath_date': ath_date_data.get(self.base_currency) if isinstance(ath_date_data, dict) else ath_date_data,
+            'atl': atl_data.get(self.base_currency) if isinstance(atl_data, dict) else atl_data,
+            'atl_change_percentage': atl_change_percentage_data.get(self.base_currency) if isinstance(atl_change_percentage_data, dict) else atl_change_percentage_data,
+            'atl_date': atl_date_data.get(self.base_currency) if isinstance(atl_date_data, dict) else atl_date_data,
+            'circulating_supply': market_data.get('circulating_supply'),
+            'total_supply': market_data.get('total_supply'),
+            'max_supply': market_data.get('max_supply'),
+            'last_updated': market_data.get('last_updated')
+        }
             
         except Exception as e:
             logger.error(f"Error getting detailed market data for {symbol}: {str(e)}")

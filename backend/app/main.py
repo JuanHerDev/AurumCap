@@ -11,7 +11,7 @@ from app.models.platform import Platform
 # Import Routers
 from app.routers.auth import auth as auth_routes
 from app.routers import platforms
-from app.routers import users, portfolio, stocks, debug, setup
+from app.routers import users, portfolio, stocks, debug, setup, fundamentals_unified, crypto, crypto_enhanced
 
 # Import Middleware and Config
 from app.middleware.security_logger import SecutiryLoggerMiddleware
@@ -21,6 +21,8 @@ from app.core.config import settings
 
 import uvicorn
 import os
+
+
 
 # Create all database tables if they don't exist
 def create_tables():
@@ -58,6 +60,9 @@ app.include_router(users.router)
 app.include_router(platforms.router)
 app.include_router(portfolio.router)
 app.include_router(stocks.router)
+app.include_router(crypto.router)
+app.include_router(crypto_enhanced.router)
+app.include_router(fundamentals_unified.router)
 app.include_router(debug.router)
 app.include_router(setup.router, prefix="/api")
 
