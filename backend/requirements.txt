@@ -21,3 +21,4 @@ redis[asyncio]
 pycoingecko
 schedule
 websockets
+yfinance

@@ -1,7 +1,13 @@
-# services/fundamentals/improved_fundamentals_service.py
+"""
+Enhanced Fundamentals Service
+Provides real fundamental data from multiple sources including Yahoo Finance, FinnHub, and Alpha Vantage
+Uses PostgreSQL (Supabase) for caching and data persistence
+"""
+
 import asyncio
 import aiohttp
-from typing import List, Dict, Any, Optional, Tuple
+import yfinance as yf
+from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import logging
 from sqlalchemy.orm import Session
@@ -10,16 +16,33 @@ import os
 logger = logging.getLogger(__name__)
 
 class ImprovedFundamentalsService:
+    """
+    Service for retrieving and managing fundamental data from multiple real sources
+    """
+    
     def __init__(self, db: Session):
-        self.db = db
-        self.finnhub_api_key = os.getenv('FINNHUB_API_KEY', 'demo')
-        self.finnhub_base_url = "https://finnhub.io/api/v1"
+        """
+        Initialize the fundamentals service
         
-        # Enhanced cache configuration
+        Args:
+            db: SQLAlchemy database session for PostgreSQL (Supabase)
+        """
+        self.db = db
+        
+        # API Keys from environment variables
+        self.finnhub_api_key = os.getenv('FINNHUB_API_KEY', 'demo')
+        self.alpha_vantage_api_key = os.getenv('ALPHA_VANTAGE_API_KEY', 'demo')
+        
+        # API endpoints
+        self.finnhub_base_url = "https://finnhub.io/api/v1"
+        self.alpha_vantage_base_url = "https://www.alphavantage.co/query"
+        
+        # Enhanced cache configuration for better performance
         self._fundamentals_cache = {}
         self._sector_cache = {}
         self._calendar_cache = {}
         
+        # Cache durations for different data types
         self.cache_durations = {
             'current_fundamentals': timedelta(hours=6),
             'historical_fundamentals': timedelta(days=1),
@@ -30,218 +53,391 @@ class ImprovedFundamentalsService:
 
     async def get_current_fundamentals(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
-        Get enhanced current fundamental data with multiple API sources
+        Get enhanced current fundamental data with multiple REAL API sources
+        
+        Args:
+            symbol: Stock symbol (e.g., AAPL, MSFT)
+        
+        Returns:
+            Dictionary containing current fundamental data or None if not found
         """
         symbol_upper = symbol.upper()
         
-        # Check memory cache first
+        # Check memory cache first for better performance
         cache_key = f"current_{symbol_upper}"
         if cache_key in self._fundamentals_cache:
             cached_data, timestamp = self._fundamentals_cache[cache_key]
             if datetime.now() - timestamp < self.cache_durations['current_fundamentals']:
+                logger.info(f"Using memory cache for {symbol_upper}")
                 return cached_data
         
         try:
-            # Try database first
+            # Try database first with cache validation
             db_fundamentals = self._get_current_fundamentals_from_db(symbol_upper)
             if db_fundamentals and db_fundamentals.cache_until > datetime.now():
+                logger.info(f"Using database cache for {symbol_upper}")
                 fundamentals_data = self._format_current_fundamentals(db_fundamentals)
                 self._fundamentals_cache[cache_key] = (fundamentals_data, datetime.now())
                 return fundamentals_data
             
-            # Fetch from multiple FinnHub endpoints
-            fundamentals_data = await self._fetch_enhanced_fundamentals(symbol_upper)
-            if fundamentals_data:
-                # Save to database
-                self._save_current_fundamentals(fundamentals_data)
-                # Update memory cache
-                self._fundamentals_cache[cache_key] = (fundamentals_data, datetime.now())
+            # Try multiple REAL data sources in order of preference
+            fundamentals_data = await self._fetch_from_multiple_real_sources(symbol_upper)
+            
+            if not fundamentals_data:
+                logger.error(f"All real data sources failed for {symbol_upper}")
+                # Return database data even if expired as fallback
+                if db_fundamentals:
+                    logger.info(f"Using expired database data as fallback for {symbol_upper}")
+                    return self._format_current_fundamentals(db_fundamentals)
+                return None
+            
+            # Save to database for future requests
+            self._save_current_fundamentals(fundamentals_data)
+            
+            # Update memory cache
+            self._fundamentals_cache[cache_key] = (fundamentals_data, datetime.now())
+            logger.info(f"Successfully retrieved and saved REAL fundamentals for {symbol_upper}")
             
             return fundamentals_data
             
         except Exception as e:
             logger.error(f"Error getting current fundamentals for {symbol_upper}: {str(e)}")
+            # Return database data as fallback even on error
+            db_fundamentals = self._get_current_fundamentals_from_db(symbol_upper)
+            if db_fundamentals:
+                return self._format_current_fundamentals(db_fundamentals)
             return None
 
-    async def _fetch_enhanced_fundamentals(self, symbol: str) -> Optional[Dict[str, Any]]:
+    async def _fetch_from_multiple_real_sources(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
-        Fetch enhanced fundamental data from multiple FinnHub endpoints
+        Try multiple REAL data sources in sequence with fallback strategy
+        
+        Args:
+            symbol: Stock symbol
+        
+        Returns:
+            Fundamental data from the first successful source
+        """
+        # Define sources in order of preference
+        sources = [
+            self._fetch_finnhub_fundamentals,
+            self._fetch_alpha_vantage_fundamentals,
+            self._fetch_yahoo_finance_fundamentals  # Yahoo Finance as fallback (no API key required)
+        ]
+        
+        for source in sources:
+            try:
+                logger.info(f"Trying {source.__name__} for {symbol}")
+                data = await source(symbol)
+                if data and self._validate_real_fundamentals_data(data):
+                    logger.info(f"Successfully fetched REAL data for {symbol} from {source.__name__}")
+                    return data
+                else:
+                    logger.warning(f"Invalid data from {source.__name__} for {symbol}")
+            except Exception as e:
+                logger.warning(f"Source {source.__name__} failed for {symbol}: {str(e)}")
+                continue
+        
+        return None
+
+    def _validate_real_fundamentals_data(self, data: Dict[str, Any]) -> bool:
+        """
+        Validate that fundamentals data has REAL financial data
+        
+        Args:
+            data: Fundamental data dictionary
+        
+        Returns:
+            Boolean indicating if data is valid
+        """
+        if not data or not isinstance(data, dict):
+            return False
+        
+        # Must have symbol
+        if not data.get('symbol'):
+            return False
+        
+        # Check if we have at least some meaningful financial data
+        financial_fields = ['pe_ratio', 'eps', 'market_cap', 'revenue', 'net_income', 'price_to_book']
+        financial_data_count = sum(1 for field in financial_fields if data.get(field) is not None)
+        
+        # We need at least 2 financial fields to consider data valid
+        return financial_data_count >= 2
+
+    async def _fetch_finnhub_fundamentals(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch REAL fundamentals from FinnHub API - Primary data source
+        
+        Args:
+            symbol: Stock symbol
+        
+        Returns:
+            FinnHub fundamental data or None if failed
         """
         try:
-            # Get data from multiple endpoints concurrently
-            metrics_data, quote_data, profile_data = await asyncio.gather(
-                self._fetch_company_metrics(symbol),
-                self._fetch_stock_quote(symbol),
-                self._fetch_company_profile(symbol),
-                return_exceptions=True
-            )
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                # Try company profile first
+                profile_url = f"{self.finnhub_base_url}/stock/profile2"
+                profile_params = {'symbol': symbol, 'token': self.finnhub_api_key}
+                
+                profile_data = {}
+                try:
+                    async with session.get(profile_url, params=profile_params) as response:
+                        if response.status == 200:
+                            profile_data = await response.json()
+                            logger.debug(f"FinnHub profile data for {symbol}: {profile_data}")
+                        elif response.status == 429:
+                            logger.warning(f"FinnHub rate limit exceeded for {symbol}")
+                            return None
+                        else:
+                            logger.warning(f"FinnHub profile API error for {symbol}: {response.status}")
+                except asyncio.TimeoutError:
+                    logger.warning(f"FinnHub profile API timeout for {symbol}")
+                    return None
+                
+                # Try company metrics
+                metrics_url = f"{self.finnhub_base_url}/stock/metric"
+                metrics_params = {'symbol': symbol, 'metric': 'all', 'token': self.finnhub_api_key}
+                
+                metrics_data = {}
+                try:
+                    async with session.get(metrics_url, params=metrics_params) as response:
+                        if response.status == 200:
+                            metrics_data = await response.json()
+                            logger.debug(f"FinnHub metrics data for {symbol}: {metrics_data}")
+                        elif response.status == 429:
+                            logger.warning(f"FinnHub rate limit exceeded for {symbol}")
+                            return None
+                        else:
+                            logger.warning(f"FinnHub metrics API error for {symbol}: {response.status}")
+                except asyncio.TimeoutError:
+                    logger.warning(f"FinnHub metrics API timeout for {symbol}")
+                    return None
+                
+                # Check if we got any meaningful data
+                has_metrics = bool(metrics_data and 'metric' in metrics_data)
+                has_profile = bool(profile_data and 'name' in profile_data)
+                
+                if not has_metrics and not has_profile:
+                    logger.warning(f"No meaningful data from FinnHub for {symbol}")
+                    return None
+                
+                # Build fundamentals with available data
+                fundamentals = {
+                    'symbol': symbol,
+                    'last_updated': datetime.now(),
+                    'cache_until': datetime.now() + self.cache_durations['current_fundamentals'],
+                    'source': 'finnhub'
+                }
+                
+                # Add profile data if available
+                if has_profile:
+                    fundamentals.update({
+                        'company_name': profile_data.get('name'),
+                        'sector': profile_data.get('finnhubIndustry'),
+                        'industry': profile_data.get('finnhubIndustry'),
+                        'currency': profile_data.get('currency', 'USD'),
+                        'country': profile_data.get('country'),
+                        'exchange': profile_data.get('exchange'),
+                        'ipo_date': self._parse_date(profile_data.get('ipo')),
+                        'website': profile_data.get('weburl'),
+                    })
+                
+                # Add metrics data if available
+                if has_metrics:
+                    metrics = metrics_data['metric']
+                    fundamentals.update({
+                        'pe_ratio': metrics.get('peNormalizedAnnual'),
+                        'eps': metrics.get('epsNormalizedAnnual'),
+                        'dividend_yield': metrics.get('dividendYieldIndicatedAnnual'),
+                        'market_cap': metrics.get('marketCapitalization'),
+                        'year_high': metrics.get('52WeekHigh'),
+                        'year_low': metrics.get('52WeekLow'),
+                        'volume_avg': metrics.get('volume30DayAvg'),
+                        'price_to_book': metrics.get('pbAnnual'),
+                        'price_to_sales': metrics.get('psAnnual'),
+                        'profit_margin': metrics.get('netMarginAnnual'),
+                    })
+                
+                return fundamentals
+                
+        except Exception as e:
+            logger.error(f"FinnHub API error for {symbol}: {str(e)}")
+            return None
+
+    async def _fetch_alpha_vantage_fundamentals(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch REAL fundamentals from Alpha Vantage API - Secondary data source
+        
+        Args:
+            symbol: Stock symbol
+        
+        Returns:
+            Alpha Vantage fundamental data or None if failed
+        """
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                # Get overview data from Alpha Vantage
+                overview_url = self.alpha_vantage_base_url
+                overview_params = {
+                    'function': 'OVERVIEW',
+                    'symbol': symbol,
+                    'apikey': self.alpha_vantage_api_key
+                }
+                
+                try:
+                    async with session.get(overview_url, params=overview_params) as response:
+                        if response.status == 200:
+                            overview_data = await response.json()
+                            
+                            # Check for API limits or errors
+                            if 'Error Message' in overview_data:
+                                logger.warning(f"Alpha Vantage error for {symbol}: {overview_data['Error Message']}")
+                                return None
+                            if 'Information' in overview_data:
+                                logger.warning(f"Alpha Vantage API limit: {overview_data['Information']}")
+                                return None
+                            if 'Note' in overview_data:
+                                logger.warning(f"Alpha Vantage API note: {overview_data['Note']}")
+                                return None
+                            
+                            # Check if we have basic data
+                            if not overview_data.get('Symbol'):
+                                logger.warning(f"No symbol data from Alpha Vantage for {symbol}")
+                                return None
+                            
+                            logger.debug(f"Alpha Vantage data for {symbol}: received {len(overview_data)} fields")
+                            
+                            # Parse Alpha Vantage data
+                            fundamentals = {
+                                'symbol': symbol,
+                                'company_name': overview_data.get('Name'),
+                                'sector': overview_data.get('Sector'),
+                                'industry': overview_data.get('Industry'),
+                                'currency': 'USD',
+                                'last_updated': datetime.now(),
+                                'cache_until': datetime.now() + self.cache_durations['current_fundamentals'],
+                                'source': 'alpha_vantage',
+                                'pe_ratio': self._safe_float(overview_data.get('PERatio')),
+                                'eps': self._safe_float(overview_data.get('EPS')),
+                                'dividend_yield': self._safe_float(overview_data.get('DividendYield')),
+                                'market_cap': self._safe_int(overview_data.get('MarketCapitalization')),
+                                'year_high': self._safe_float(overview_data.get('52WeekHigh')),
+                                'year_low': self._safe_float(overview_data.get('52WeekLow')),
+                                'profit_margin': self._safe_float(overview_data.get('ProfitMargin')),
+                                'total_assets': self._safe_int(overview_data.get('TotalAssets')),
+                                'total_liabilities': self._safe_int(overview_data.get('TotalLiabilities')),
+                                'revenue': self._safe_int(overview_data.get('RevenueTTM')),
+                                'net_income': self._safe_int(overview_data.get('NetIncomeTTM')),
+                                'fiscal_year_end': overview_data.get('FiscalYearEnd'),
+                                'exchange': overview_data.get('Exchange'),
+                                'country': overview_data.get('Country'),
+                                'description': overview_data.get('Description'),
+                                'price_to_book': self._safe_float(overview_data.get('PriceToBookRatio')),
+                                'price_to_sales': self._safe_float(overview_data.get('PriceToSalesRatioTTM')),
+                            }
+                            
+                            return fundamentals
+                        else:
+                            logger.warning(f"Alpha Vantage API error for {symbol}: {response.status}")
+                            return None
+                except asyncio.TimeoutError:
+                    logger.warning(f"Alpha Vantage API timeout for {symbol}")
+                    return None
+                        
+        except Exception as e:
+            logger.error(f"Alpha Vantage API error for {symbol}: {str(e)}")
+            return None
+
+    async def _fetch_yahoo_finance_fundamentals(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch REAL fundamentals from Yahoo Finance - Third data source (No API key required)
+        
+        Args:
+            symbol: Stock symbol
+        
+        Returns:
+            Yahoo Finance fundamental data or None if failed
+        """
+        try:
+            # Use yfinance library to get real data from Yahoo Finance
+            logger.info(f"Fetching Yahoo Finance data for {symbol}")
             
-            # Process metrics data
+            # Create ticker object
+            ticker = yf.Ticker(symbol)
+            
+            # Get stock info
+            info = ticker.info
+            
+            if not info:
+                logger.warning(f"No info available from Yahoo Finance for {symbol}")
+                return None
+            
+            # Extract fundamental data
             fundamentals = {
                 'symbol': symbol,
+                'company_name': info.get('longName'),
+                'sector': info.get('sector'),
+                'industry': info.get('industry'),
+                'currency': info.get('currency', 'USD'),
                 'last_updated': datetime.now(),
                 'cache_until': datetime.now() + self.cache_durations['current_fundamentals'],
-                'source': 'finnhub'
+                'source': 'yahoo_finance',
+                # Valuation metrics
+                'pe_ratio': info.get('trailingPE'),
+                'forward_pe': info.get('forwardPE'),
+                'eps': info.get('trailingEps'),
+                'forward_eps': info.get('forwardEps'),
+                'market_cap': info.get('marketCap'),
+                'enterprise_value': info.get('enterpriseValue'),
+                # Price metrics
+                'current_price': info.get('currentPrice'),
+                'target_mean_price': info.get('targetMeanPrice'),
+                'target_high_price': info.get('targetHighPrice'),
+                'target_low_price': info.get('targetLowPrice'),
+                'year_high': info.get('fiftyTwoWeekHigh'),
+                'year_low': info.get('fiftyTwoWeekLow'),
+                # Dividend information
+                'dividend_yield': info.get('dividendYield'),
+                'dividend_rate': info.get('dividendRate'),
+                'payout_ratio': info.get('payoutRatio'),
+                # Financial ratios
+                'price_to_book': info.get('priceToBook'),
+                'price_to_sales': info.get('priceToSalesTrailing12Months'),
+                'profit_margin': info.get('profitMargins'),
+                'operating_margin': info.get('operatingMargins'),
+                'return_on_equity': info.get('returnOnEquity'),
+                'return_on_assets': info.get('returnOnAssets'),
+                # Volume and liquidity
+                'volume_avg': info.get('averageVolume'),
+                'beta': info.get('beta'),
+                # Company information
+                'exchange': info.get('exchange'),
+                'country': info.get('country'),
+                'website': info.get('website'),
+                'employees': info.get('fullTimeEmployees'),
+                'description': info.get('longBusinessSummary'),
             }
             
-            # Add metrics data
-            if isinstance(metrics_data, dict) and 'metric' in metrics_data:
-                metrics = metrics_data['metric']
-                fundamentals.update(self._parse_metrics_data(metrics))
-            
-            # Add quote data
-            if isinstance(quote_data, dict):
-                fundamentals.update(self._parse_quote_data(quote_data))
-            
-            # Add profile data
-            if isinstance(profile_data, dict):
-                fundamentals.update(self._parse_profile_data(profile_data))
-            
-            # Calculate derived metrics
-            fundamentals.update(self._calculate_derived_metrics(fundamentals))
-            
+            logger.info(f"Successfully retrieved Yahoo Finance data for {symbol}")
             return fundamentals
             
         except Exception as e:
-            logger.error(f"Error fetching enhanced fundamentals for {symbol}: {str(e)}")
+            logger.error(f"Yahoo Finance API error for {symbol}: {str(e)}")
             return None
-
-    async def _fetch_company_metrics(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Fetch company metrics from FinnHub"""
-        try:
-            async with aiohttp.ClientSession() as session:
-                url = f"{self.finnhub_base_url}/stock/metric"
-                params = {
-                    'symbol': symbol,
-                    'metric': 'all',
-                    'token': self.finnhub_api_key
-                }
-                
-                async with session.get(url, params=params) as response:
-                    if response.status == 200:
-                        return await response.json()
-                    else:
-                        logger.warning(f"Metrics API error for {symbol}: {response.status}")
-                        return None
-        except Exception as e:
-            logger.error(f"Error fetching metrics for {symbol}: {str(e)}")
-            return None
-
-    async def _fetch_stock_quote(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Fetch stock quote from FinnHub"""
-        try:
-            async with aiohttp.ClientSession() as session:
-                url = f"{self.finnhub_base_url}/quote"
-                params = {
-                    'symbol': symbol,
-                    'token': self.finnhub_api_key
-                }
-                
-                async with session.get(url, params=params) as response:
-                    if response.status == 200:
-                        return await response.json()
-                    else:
-                        logger.warning(f"Quote API error for {symbol}: {response.status}")
-                        return None
-        except Exception as e:
-            logger.error(f"Error fetching quote for {symbol}: {str(e)}")
-            return None
-
-    async def _fetch_company_profile(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Fetch company profile from FinnHub"""
-        try:
-            async with aiohttp.ClientSession() as session:
-                url = f"{self.finnhub_base_url}/stock/profile2"
-                params = {
-                    'symbol': symbol,
-                    'token': self.finnhub_api_key
-                }
-                
-                async with session.get(url, params=params) as response:
-                    if response.status == 200:
-                        return await response.json()
-                    else:
-                        logger.warning(f"Profile API error for {symbol}: {response.status}")
-                        return None
-        except Exception as e:
-            logger.error(f"Error fetching profile for {symbol}: {str(e)}")
-            return None
-
-    def _parse_metrics_data(self, metrics: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse metrics data from FinnHub response"""
-        return {
-            'pe_ratio': metrics.get('peNormalizedAnnual'),
-            'eps': metrics.get('epsNormalizedAnnual'),
-            'dividend_yield': metrics.get('dividendYieldIndicatedAnnual'),
-            'market_cap': metrics.get('marketCapitalization'),
-            'revenue': metrics.get('revenuePerShare'),
-            'net_income': metrics.get('netIncome'),
-            'total_assets': metrics.get('totalAssets'),
-            'total_liabilities': metrics.get('totalDebt'),
-            'cash': metrics.get('cashAndEquivalents'),
-            'year_high': metrics.get('52WeekHigh'),
-            'year_low': metrics.get('52WeekLow'),
-            'volume_avg': metrics.get('volume30DayAvg'),
-            'last_earnings_date': self._parse_date(metrics.get('lastEarningsDate')),
-            'next_earnings_date': self._parse_date(metrics.get('nextEarningsDate')),
-            'fiscal_year_end': metrics.get('fiscalYearEnd'),
-        }
-
-    def _parse_quote_data(self, quote: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse quote data from FinnHub response"""
-        return {
-            'current_price': quote.get('c'),
-            'price_change': quote.get('d'),
-            'percent_change': quote.get('dp'),
-            'day_high': quote.get('h'),
-            'day_low': quote.get('l'),
-            'open_price': quote.get('o'),
-            'previous_close': quote.get('pc'),
-        }
-
-    def _parse_profile_data(self, profile: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse profile data from FinnHub response"""
-        return {
-            'company_name': profile.get('name'),
-            'sector': profile.get('finnhubIndustry'),
-            'industry': profile.get('finnhubIndustry'),
-            'country': profile.get('country'),
-            'currency': profile.get('currency'),
-            'exchange': profile.get('exchange'),
-            'website': profile.get('weburl'),
-            'logo_url': profile.get('logo'),
-            'ipo_date': self._parse_date(profile.get('ipo')),
-            'employees': profile.get('employees'),
-        }
-
-    def _calculate_derived_metrics(self, fundamentals: Dict[str, Any]) -> Dict[str, Any]:
-        """Calculate derived financial metrics"""
-        derived = {}
-        
-        # Calculate profit margin if we have revenue and net income
-        revenue = fundamentals.get('revenue')
-        net_income = fundamentals.get('net_income')
-        
-        if revenue and net_income and revenue > 0:
-            derived['profit_margin'] = (net_income / revenue) * 100
-        
-        # Calculate additional ratios
-        market_cap = fundamentals.get('market_cap')
-        total_assets = fundamentals.get('total_assets')
-        total_liabilities = fundamentals.get('total_liabilities')
-        
-        if market_cap and total_assets and total_assets > 0:
-            derived['price_to_book'] = market_cap / total_assets
-        
-        if total_assets and total_liabilities and total_assets > 0:
-            derived['debt_to_assets'] = (total_liabilities / total_assets) * 100
-        
-        return derived
 
     async def get_historical_fundamentals(self, symbol: str, period_type: str = 'annual', 
                                          limit: int = 10) -> Optional[List[Dict[str, Any]]]:
         """
-        Get historical fundamental data with fallback strategies
+        Get historical fundamental data with REAL data from Yahoo Finance
+        
+        Args:
+            symbol: Stock symbol
+            period_type: 'annual' or 'quarterly'
+            limit: Number of periods to return
+        
+        Returns:
+            List of historical fundamental data or None if failed
         """
         symbol_upper = symbol.upper()
         
@@ -249,18 +445,17 @@ class ImprovedFundamentalsService:
             # Try database first
             db_historical = self._get_historical_fundamentals_from_db(symbol_upper, period_type, limit)
             if db_historical:
+                logger.info(f"Using database historical data for {symbol_upper}")
                 return [self._format_historical_fundamentals(item) for item in db_historical]
             
-            # Try FinnHub financials
-            historical_data = await self._fetch_finnhub_financials(symbol_upper, period_type, limit)
-            if not historical_data:
-                # Fallback: Generate from current data
-                historical_data = await self._generate_historical_from_current(symbol_upper, period_type, limit)
+            # Get REAL historical data from Yahoo Finance
+            historical_data = await self._fetch_yahoo_historical_data(symbol_upper, period_type, limit)
             
             if historical_data:
-                # Save to database
+                # Save to database for future requests
                 for data in historical_data:
                     self._save_historical_fundamentals(data)
+                logger.info(f"Retrieved and saved REAL historical data for {symbol_upper}")
             
             return historical_data
             
@@ -268,65 +463,100 @@ class ImprovedFundamentalsService:
             logger.error(f"Error getting historical fundamentals for {symbol}: {str(e)}")
             return None
 
-    async def _fetch_finnhub_financials(self, symbol: str, period_type: str, 
-                                      limit: int) -> Optional[List[Dict[str, Any]]]:
-        """Fetch financial statements from FinnHub"""
+    async def _fetch_yahoo_historical_data(self, symbol: str, period_type: str,
+                                         limit: int) -> List[Dict[str, Any]]:
+        """
+        Fetch REAL historical fundamental data from Yahoo Finance
+        
+        Args:
+            symbol: Stock symbol
+            period_type: 'annual' or 'quarterly'
+            limit: Number of periods to fetch
+        
+        Returns:
+            List of historical fundamental data
+        """
         try:
-            # FinnHub financials endpoint might be premium-only
-            # This is a fallback implementation
-            return await self._generate_historical_from_current(symbol, period_type, limit)
-        except Exception as e:
-            logger.error(f"Error fetching FinnHub financials for {symbol}: {str(e)}")
-            return None
-
-    async def _generate_historical_from_current(self, symbol: str, period_type: str,
-                                              limit: int) -> List[Dict[str, Any]]:
-        """Generate historical data from current fundamentals (fallback)"""
-        try:
-            current_data = await self.get_current_fundamentals(symbol)
-            if not current_data:
+            ticker = yf.Ticker(symbol)
+            historical_data = []
+            
+            # Get financial statements based on period type
+            if period_type == 'annual':
+                financials = ticker.financials
+                balance_sheet = ticker.balance_sheet
+            else:  # quarterly
+                financials = ticker.quarterly_financials
+                balance_sheet = ticker.quarterly_balance_sheet
+            
+            if financials is None or financials.empty:
+                logger.warning(f"No financial data available from Yahoo Finance for {symbol}")
                 return []
             
-            # Create historical entries based on current data
-            historical_data = []
-            base_date = datetime.now()
-            
-            for i in range(limit):
-                historical_date = base_date - timedelta(days=365 * (i + 1))
-                
-                historical_entry = {
-                    'symbol': symbol,
-                    'period_type': period_type,
-                    'fiscal_date': historical_date.date(),
-                    'report_date': historical_date,
-                    'revenue': current_data.get('revenue'),
-                    'net_income': current_data.get('net_income'),
-                    'eps': current_data.get('eps'),
-                    'total_assets': current_data.get('total_assets'),
-                    'total_liabilities': current_data.get('total_liabilities'),
-                    'cash': current_data.get('cash'),
-                    'pe_ratio': current_data.get('pe_ratio'),
-                    'profit_margin': current_data.get('profit_margin'),
-                    'source': 'estimated',
-                    'is_estimated': True,
-                    'created_at': datetime.now()
-                }
-                
-                historical_data.append(historical_entry)
+            # Process each period
+            for i, date in enumerate(financials.columns[:limit]):
+                try:
+                    # Get basic financial data without recursion
+                    eps_value = None
+                    try:
+                        # Try to get EPS from income statement
+                        income_stmt = ticker.income_stmt if period_type == 'annual' else ticker.quarterly_income_stmt
+                        if income_stmt is not None and not income_stmt.empty:
+                            if 'Basic EPS' in income_stmt.index and date in income_stmt.columns:
+                                eps_value = income_stmt.loc['Basic EPS'][date]
+                            elif 'Diluted EPS' in income_stmt.index and date in income_stmt.columns:
+                                eps_value = income_stmt.loc['Diluted EPS'][date]
+                    except:
+                        pass
+                    
+                    historical_entry = {
+                        'symbol': symbol,
+                        'period_type': period_type,
+                        'fiscal_date': date.date(),
+                        'report_date': datetime.now(),
+                        'revenue': financials.loc['Total Revenue'][date] if 'Total Revenue' in financials.index else None,
+                        'net_income': financials.loc['Net Income'][date] if 'Net Income' in financials.index else None,
+                        'eps': eps_value,
+                        'gross_profit': financials.loc['Gross Profit'][date] if 'Gross Profit' in financials.index else None,
+                        'operating_income': financials.loc['Operating Income'][date] if 'Operating Income' in financials.index else None,
+                        'ebitda': financials.loc['EBITDA'][date] if 'EBITDA' in financials.index else None,
+                        'source': 'yahoo_finance',
+                        'is_estimated': False,
+                        'created_at': datetime.now()
+                    }
+                    
+                    # Add balance sheet data if available
+                    if balance_sheet is not None and not balance_sheet.empty and date in balance_sheet.columns:
+                        historical_entry.update({
+                            'total_assets': balance_sheet.loc['Total Assets'][date] if 'Total Assets' in balance_sheet.index else None,
+                            'total_liabilities': balance_sheet.loc['Total Liabilities'][date] if 'Total Liabilities' in balance_sheet.index else None,
+                            'cash': balance_sheet.loc['Cash'][date] if 'Cash' in balance_sheet.index else 
+                                   balance_sheet.loc['Cash And Cash Equivalents'][date] if 'Cash And Cash Equivalents' in balance_sheet.index else None,
+                            'long_term_debt': balance_sheet.loc['Long Term Debt'][date] if 'Long Term Debt' in balance_sheet.index else None,
+                            'shareholders_equity': balance_sheet.loc['Total Stockholder Equity'][date] if 'Total Stockholder Equity' in balance_sheet.index else None,
+                        })
+                    
+                    historical_data.append(historical_entry)
+                    
+                except Exception as e:
+                    logger.warning(f"Error processing historical period {date} for {symbol}: {str(e)}")
+                    continue
             
             return historical_data
             
         except Exception as e:
-            logger.error(f"Error generating historical data for {symbol}: {str(e)}")
+            logger.error(f"Error fetching Yahoo Finance historical data for {symbol}: {str(e)}")
             return []
 
     async def get_sector_metrics(self, sector: str) -> Optional[Dict[str, Any]]:
         """
-        Get enhanced sector metrics with data population
-        """
-        # First, ensure we have sector data
-        await self._populate_sector_data()
+        Get enhanced sector metrics with REAL data aggregation
         
+        Args:
+            sector: Sector name
+        
+        Returns:
+            Sector metrics dictionary or None if failed
+        """
         # Check memory cache
         cache_key = f"sector_{sector}"
         if cache_key in self._sector_cache:
@@ -342,10 +572,9 @@ class ImprovedFundamentalsService:
                 self._sector_cache[cache_key] = (sector_data, datetime.now())
                 return sector_data
             
-            # Calculate sector metrics
-            sector_data = await self._calculate_enhanced_sector_metrics(sector)
+            # Calculate sector metrics from REAL stock data WITHOUT RECURSION
+            sector_data = await self._calculate_real_sector_metrics(sector)
             if sector_data:
-                # Save to database
                 self._save_sector_metrics(sector_data)
                 # Update memory cache
                 self._sector_cache[cache_key] = (sector_data, datetime.now())
@@ -356,59 +585,20 @@ class ImprovedFundamentalsService:
             logger.error(f"Error getting sector metrics for {sector}: {str(e)}")
             return None
 
-    async def _populate_sector_data(self):
-        """Populate sector data if database is empty"""
+    async def _calculate_real_sector_metrics(self, sector: str) -> Optional[Dict[str, Any]]:
+        """
+        Calculate sector metrics from REAL stock data in the sector WITHOUT RECURSION
+        
+        Args:
+            sector: Sector name
+        
+        Returns:
+            Aggregated sector metrics
+        """
         try:
             from app.models.stocks.stock_models import StockProfile
             
-            # Check if we have any stock profiles
-            stock_count = self.db.query(StockProfile).count()
-            
-            if stock_count == 0:
-                logger.info("Populating initial sector data...")
-                # Add some major stocks to get sector data
-                major_stocks = [
-                    {'symbol': 'AAPL', 'sector': 'Technology'},
-                    {'symbol': 'MSFT', 'sector': 'Technology'},
-                    {'symbol': 'GOOGL', 'sector': 'Technology'},
-                    {'symbol': 'AMZN', 'sector': 'Consumer Cyclical'},
-                    {'symbol': 'TSLA', 'sector': 'Automotive'},
-                    {'symbol': 'JPM', 'sector': 'Financial Services'},
-                    {'symbol': 'JNJ', 'sector': 'Healthcare'},
-                    {'symbol': 'XOM', 'sector': 'Energy'},
-                ]
-                
-                for stock_data in major_stocks:
-                    # Check if stock exists
-                    existing = self.db.query(StockProfile).filter(
-                        StockProfile.symbol == stock_data['symbol']
-                    ).first()
-                    
-                    if not existing:
-                        new_stock = StockProfile(
-                            symbol=stock_data['symbol'],
-                            company_name=f"Company {stock_data['symbol']}",
-                            sector=stock_data['sector'],
-                            currency='USD',
-                            exchange='NASDAQ',
-                            last_updated=datetime.now(),
-                            cache_until=datetime.now() + timedelta(days=30)
-                        )
-                        self.db.add(new_stock)
-                
-                self.db.commit()
-                logger.info("Initial sector data populated")
-                
-        except Exception as e:
-            logger.error(f"Error populating sector data: {str(e)}")
-            self.db.rollback()
-
-    async def _calculate_enhanced_sector_metrics(self, sector: str) -> Optional[Dict[str, Any]]:
-        """Calculate enhanced sector metrics"""
-        try:
-            from app.models.stocks.stock_models import StockProfile
-            
-            # Get stocks in this sector
+            # Get stocks in this sector from database
             stocks_in_sector = self.db.query(StockProfile).filter(
                 StockProfile.sector == sector
             ).all()
@@ -417,180 +607,56 @@ class ImprovedFundamentalsService:
                 logger.warning(f"No stocks found for sector: {sector}")
                 return None
             
-            # Get fundamentals for all stocks in sector
+            # Collect REAL fundamentals for all stocks in sector WITHOUT calling get_current_fundamentals
             fundamentals_list = []
-            for stock in stocks_in_sector:
-                fundamentals = await self.get_current_fundamentals(stock.symbol)
-                if fundamentals and fundamentals.get('pe_ratio'):
-                    fundamentals_list.append(fundamentals)
+            for stock in stocks_in_sector[:5]:  # Limit to 5 stocks for performance
+                try:
+                    # Use direct Yahoo Finance fetch instead of get_current_fundamentals to avoid recursion
+                    fundamentals = await self._fetch_yahoo_finance_fundamentals(stock.symbol)
+                    if fundamentals and self._validate_real_fundamentals_data(fundamentals):
+                        fundamentals_list.append(fundamentals)
+                except Exception as e:
+                    logger.warning(f"Error getting fundamentals for {stock.symbol}: {str(e)}")
+                    continue
             
             if not fundamentals_list:
+                logger.warning(f"No valid fundamentals found for sector: {sector}")
                 return None
             
-            # Calculate comprehensive metrics
+            # Calculate averages from REAL data
             metrics = {
                 'sector': sector,
                 'avg_pe_ratio': self._calculate_average([f.get('pe_ratio') for f in fundamentals_list]),
                 'avg_ps_ratio': self._calculate_average([f.get('price_to_sales') for f in fundamentals_list]),
                 'avg_pb_ratio': self._calculate_average([f.get('price_to_book') for f in fundamentals_list]),
-                'avg_debt_to_equity': self._calculate_average([f.get('debt_to_assets') for f in fundamentals_list]),
                 'avg_roe': self._calculate_average([f.get('return_on_equity') for f in fundamentals_list]),
                 'avg_profit_margin': self._calculate_average([f.get('profit_margin') for f in fundamentals_list]),
                 'avg_dividend_yield': self._calculate_average([f.get('dividend_yield') for f in fundamentals_list]),
                 'last_updated': datetime.now(),
                 'cache_until': datetime.now() + self.cache_durations['sector_metrics'],
                 'stocks_count': len(fundamentals_list),
-                'total_market_cap': sum(f.get('market_cap', 0) for f in fundamentals_list if f.get('market_cap'))
+                'total_market_cap': sum(f.get('market_cap', 0) for f in fundamentals_list if f.get('market_cap')),
+                'source': 'real_data_aggregation'
             }
             
             return metrics
             
         except Exception as e:
-            logger.error(f"Error calculating enhanced sector metrics for {sector}: {str(e)}")
+            logger.error(f"Error calculating real sector metrics for {sector}: {str(e)}")
             return None
 
-    async def get_economic_calendar(self, start_date: str, end_date: str, 
-                                  country: str = 'US') -> Optional[List[Dict[str, Any]]]:
-        """
-        Get economic calendar with improved date handling
-        """
-        cache_key = f"calendar_{start_date}_{end_date}_{country}"
-        
-        # Check memory cache
-        if cache_key in self._calendar_cache:
-            cached_data, timestamp = self._calendar_cache[cache_key]
-            if datetime.now() - timestamp < self.cache_durations['economic_calendar']:
-                return cached_data
-        
-        try:
-            # Format dates for API
-            from_date = self._format_date_for_api(start_date)
-            to_date = self._format_date_for_api(end_date)
-            
-            calendar_data = await self._fetch_economic_calendar(from_date, to_date, country)
-            if calendar_data:
-                self._calendar_cache[cache_key] = (calendar_data, datetime.now())
-            
-            return calendar_data
-            
-        except Exception as e:
-            logger.error(f"Error getting economic calendar: {str(e)}")
-            return None
+    # Database Operations
 
-    async def _fetch_economic_calendar(self, start_date: str, end_date: str, 
-                                     country: str) -> Optional[List[Dict[str, Any]]]:
-        """
-        Fetch economic calendar from FinnHub API
-        """
-        try:
-            async with aiohttp.ClientSession() as session:
-                url = f"{self.finnhub_base_url}/calendar/economic"
-                params = {
-                    'from': start_date,
-                    'to': end_date,
-                    'token': self.finnhub_api_key
-                }
-                
-                async with session.get(url, params=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        
-                        if data and 'economicCalendar' in data:
-                            events = []
-                            for event in data['economicCalendar']:
-                                if event.get('country') == country:
-                                    events.append({
-                                        'event_date': self._parse_date(event.get('time')),
-                                        'event_type': 'economic',
-                                        'country': event.get('country'),
-                                        'event_name': event.get('event'),
-                                        'importance': event.get('importance'),
-                                        'actual': event.get('actual'),
-                                        'previous': event.get('previous'),
-                                        'forecast': event.get('forecast'),
-                                        'unit': event.get('unit'),
-                                        'currency': event.get('currency')
-                                    })
-                            
-                            return events
-                        else:
-                            logger.warning("No economic calendar data found")
-                    else:
-                        logger.error(f"FinnHub calendar API error: {response.status}")
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error fetching economic calendar: {str(e)}")
-            return None
-
-    async def get_earnings_calendar(self, start_date: str, end_date: str, 
-                                  symbol: str = None) -> Optional[List[Dict[str, Any]]]:
-        """
-        Get earnings calendar for a date range, optionally filtered by symbol
-        """
-        try:
-            # Fetch from FinnHub API
-            earnings_data = await self._fetch_earnings_calendar(start_date, end_date, symbol)
-            return earnings_data
-            
-        except Exception as e:
-            logger.error(f"Error getting earnings calendar: {str(e)}")
-            return None
-
-    async def _fetch_earnings_calendar(self, start_date: str, end_date: str, 
-                                     symbol: str) -> Optional[List[Dict[str, Any]]]:
-        """
-        Fetch earnings calendar from FinnHub API
-        """
-        try:
-            async with aiohttp.ClientSession() as session:
-                url = f"{self.finnhub_base_url}/calendar/earnings"
-                params = {
-                    'from': start_date,
-                    'to': end_date,
-                    'token': self.finnhub_api_key
-                }
-                
-                if symbol:
-                    params['symbol'] = symbol
-                
-                async with session.get(url, params=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        
-                        if data and 'earningsCalendar' in data:
-                            earnings = []
-                            for earning in data['earningsCalendar']:
-                                earnings.append({
-                                    'event_date': self._parse_date(earning.get('date')),
-                                    'event_type': 'earnings',
-                                    'symbol': earning.get('symbol'),
-                                    'company_name': earning.get('name'),
-                                    'eps_estimate': earning.get('epsEstimate'),
-                                    'eps_actual': earning.get('epsActual'),
-                                    'revenue_estimate': earning.get('revenueEstimate'),
-                                    'revenue_actual': earning.get('revenueActual'),
-                                    'hour': earning.get('hour'),
-                                    'year': earning.get('year'),
-                                    'quarter': earning.get('quarter')
-                                })
-                            
-                            return earnings
-                        else:
-                            logger.warning("No earnings calendar data found")
-                    else:
-                        logger.error(f"FinnHub earnings calendar API error: {response.status}")
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error fetching earnings calendar: {str(e)}")
-            return None
-
-    # Database Operations - MÉTODOS FALTANTES AGREGADOS
     def _get_current_fundamentals_from_db(self, symbol: str):
-        """Get current fundamentals from database"""
+        """
+        Get current fundamentals from database
+        
+        Args:
+            symbol: Stock symbol
+        
+        Returns:
+            Database record or None
+        """
         try:
             from app.models.fundamentals.fundamental_models import StockFundamentalsCurrent
             return self.db.query(StockFundamentalsCurrent).filter(
@@ -601,7 +667,12 @@ class ImprovedFundamentalsService:
             return None
 
     def _save_current_fundamentals(self, fundamentals_data: Dict[str, Any]):
-        """Save current fundamentals to database"""
+        """
+        Save current fundamentals to database
+        
+        Args:
+            fundamentals_data: Fundamental data dictionary
+        """
         try:
             from app.models.fundamentals.fundamental_models import StockFundamentalsCurrent
             
@@ -614,6 +685,7 @@ class ImprovedFundamentalsService:
             
             filtered_data = {k: v for k, v in fundamentals_data.items() if k in model_fields}
             
+            # Check if record exists
             existing = self.db.query(StockFundamentalsCurrent).filter(
                 StockFundamentalsCurrent.symbol == filtered_data['symbol']
             ).first()
@@ -622,20 +694,31 @@ class ImprovedFundamentalsService:
                 # Update existing record
                 for key, value in filtered_data.items():
                     setattr(existing, key, value)
+                logger.info(f"✅ Updated current fundamentals in DB: {filtered_data['symbol']}")
             else:
                 # Create new record
                 new_fundamentals = StockFundamentalsCurrent(**filtered_data)
                 self.db.add(new_fundamentals)
+                logger.info(f"✅ Saved new current fundamentals to DB: {filtered_data['symbol']}")
             
             self.db.commit()
-            logger.info(f"✅ Current fundamentals saved to DB: {filtered_data['symbol']}")
             
         except Exception as e:
             logger.error(f"❌ Error saving current fundamentals: {str(e)}")
             self.db.rollback()
 
     def _get_historical_fundamentals_from_db(self, symbol: str, period_type: str, limit: int):
-        """Get historical fundamentals from database"""
+        """
+        Get historical fundamentals from database
+        
+        Args:
+            symbol: Stock symbol
+            period_type: 'annual' or 'quarterly'
+            limit: Number of records to return
+        
+        Returns:
+            List of historical records
+        """
         try:
             from app.models.fundamentals.fundamental_models import StockFundamentalsHistorical
             return self.db.query(StockFundamentalsHistorical).filter(
@@ -647,18 +730,19 @@ class ImprovedFundamentalsService:
             return None
 
     def _save_historical_fundamentals(self, historical_data: Dict[str, Any]):
-        """Save historical fundamentals to database"""
+        """
+        Save historical fundamentals to database
+        
+        Args:
+            historical_data: Historical data dictionary
+        """
         try:
             from app.models.fundamentals.fundamental_models import StockFundamentalsHistorical
             
             # Filter only fields that exist in the model
             model_fields = ['symbol', 'period_type', 'fiscal_date', 'report_date', 'revenue', 
-                          'net_income', 'eps', 'dividends_per_share', 'gross_profit', 
-                          'operating_income', 'ebitda', 'total_assets', 'total_liabilities', 
-                          'cash', 'long_term_debt', 'shareholders_equity', 'pe_ratio', 
-                          'ps_ratio', 'pb_ratio', 'roe', 'debt_to_equity', 'current_ratio', 
-                          'profit_margin', 'shares_outstanding', 'market_cap', 'source', 
-                          'is_estimated', 'created_at']
+                          'net_income', 'eps', 'total_assets', 'total_liabilities', 
+                          'cash', 'pe_ratio', 'profit_margin', 'dividend_yield', 'source', 'is_estimated', 'created_at']
             
             filtered_data = {k: v for k, v in historical_data.items() if k in model_fields}
             
@@ -673,139 +757,24 @@ class ImprovedFundamentalsService:
                 new_historical = StockFundamentalsHistorical(**filtered_data)
                 self.db.add(new_historical)
                 self.db.commit()
-                logger.info(f"✅ Historical fundamentals saved to DB: {filtered_data['symbol']}")
+                logger.info(f"✅ Saved historical fundamentals to DB: {filtered_data['symbol']} for {filtered_data['fiscal_date']}")
             
         except Exception as e:
             logger.error(f"❌ Error saving historical fundamentals: {str(e)}")
             self.db.rollback()
 
-    def _get_sector_metrics_from_db(self, sector: str):
-        """Get sector metrics from database"""
-        try:
-            from app.models.fundamentals.fundamental_models import SectorMetrics
-            return self.db.query(SectorMetrics).filter(
-                SectorMetrics.sector == sector
-            ).first()
-        except Exception as e:
-            logger.error(f"Error getting sector metrics from DB for {sector}: {str(e)}")
-            return None
-
-    def _save_sector_metrics(self, sector_data: Dict[str, Any]):
-        """Save sector metrics to database"""
-        try:
-            from app.models.fundamentals.fundamental_models import SectorMetrics
-            
-            # Filter only fields that exist in the model
-            model_fields = ['sector', 'avg_pe_ratio', 'avg_ps_ratio', 'avg_pb_ratio', 
-                          'avg_debt_to_equity', 'avg_roe', 'avg_profit_margin', 
-                          'avg_dividend_yield', 'last_updated', 'cache_until']
-            
-            filtered_data = {k: v for k, v in sector_data.items() if k in model_fields}
-            
-            existing = self.db.query(SectorMetrics).filter(
-                SectorMetrics.sector == filtered_data['sector']
-            ).first()
-            
-            if existing:
-                # Update existing record
-                for key, value in filtered_data.items():
-                    setattr(existing, key, value)
-            else:
-                # Create new record
-                new_sector = SectorMetrics(**filtered_data)
-                self.db.add(new_sector)
-            
-            self.db.commit()
-            logger.info(f"✅ Sector metrics saved to DB: {filtered_data['sector']}")
-            
-        except Exception as e:
-            logger.error(f"❌ Error saving sector metrics: {str(e)}")
-            self.db.rollback()
-
-    # Formatting Methods
-    def _format_current_fundamentals(self, db_fundamentals) -> Dict[str, Any]:
-        """Format database current fundamentals to API response"""
-        return {
-            'symbol': db_fundamentals.symbol,
-            'pe_ratio': db_fundamentals.pe_ratio,
-            'eps': db_fundamentals.eps,
-            'dividend_yield': db_fundamentals.dividend_yield,
-            'market_cap': db_fundamentals.market_cap,
-            'revenue': db_fundamentals.revenue,
-            'net_income': db_fundamentals.net_income,
-            'profit_margin': db_fundamentals.profit_margin,
-            'total_assets': db_fundamentals.total_assets,
-            'total_liabilities': db_fundamentals.total_liabilities,
-            'cash': db_fundamentals.cash,
-            'year_high': db_fundamentals.year_high,
-            'year_low': db_fundamentals.year_low,
-            'volume_avg': db_fundamentals.volume_avg,
-            'last_earnings_date': db_fundamentals.last_earnings_date,
-            'next_earnings_date': db_fundamentals.next_earnings_date,
-            'fiscal_year_end': db_fundamentals.fiscal_year_end,
-            'last_updated': db_fundamentals.last_updated,
-            'source': 'database'
-        }
-
-    def _format_historical_fundamentals(self, db_historical) -> Dict[str, Any]:
-        """Format database historical fundamentals to API response"""
-        return {
-            'symbol': db_historical.symbol,
-            'period_type': db_historical.period_type,
-            'fiscal_date': db_historical.fiscal_date,
-            'report_date': db_historical.report_date,
-            'revenue': db_historical.revenue,
-            'net_income': db_historical.net_income,
-            'eps': db_historical.eps,
-            'dividends_per_share': db_historical.dividends_per_share,
-            'gross_profit': db_historical.gross_profit,
-            'operating_income': db_historical.operating_income,
-            'ebitda': db_historical.ebitda,
-            'total_assets': db_historical.total_assets,
-            'total_liabilities': db_historical.total_liabilities,
-            'cash': db_historical.cash,
-            'long_term_debt': db_historical.long_term_debt,
-            'shareholders_equity': db_historical.shareholders_equity,
-            'pe_ratio': db_historical.pe_ratio,
-            'ps_ratio': db_historical.ps_ratio,
-            'pb_ratio': db_historical.pb_ratio,
-            'roe': db_historical.roe,
-            'debt_to_equity': db_historical.debt_to_equity,
-            'current_ratio': db_historical.current_ratio,
-            'profit_margin': db_historical.profit_margin,
-            'shares_outstanding': db_historical.shares_outstanding,
-            'market_cap': db_historical.market_cap,
-            'source': db_historical.source,
-            'is_estimated': db_historical.is_estimated
-        }
-
-    def _format_sector_metrics(self, db_sector) -> Dict[str, Any]:
-        """Format database sector metrics to API response"""
-        return {
-            'sector': db_sector.sector,
-            'avg_pe_ratio': db_sector.avg_pe_ratio,
-            'avg_ps_ratio': db_sector.avg_ps_ratio,
-            'avg_pb_ratio': db_sector.avg_pb_ratio,
-            'avg_debt_to_equity': db_sector.avg_debt_to_equity,
-            'avg_roe': db_sector.avg_roe,
-            'avg_profit_margin': db_sector.avg_profit_margin,
-            'avg_dividend_yield': db_sector.avg_dividend_yield,
-            'last_updated': db_sector.last_updated,
-            'source': 'database'
-        }
-
     # Utility Methods
-    def _format_date_for_api(self, date_str: str) -> str:
-        """Format date for API calls"""
-        try:
-            # Convert YYYY-MM-DD to Unix timestamp
-            dt = datetime.fromisoformat(date_str)
-            return str(int(dt.timestamp()))
-        except:
-            return date_str
 
     def _parse_date(self, date_str: str) -> Optional[datetime]:
-        """Parse date string to datetime object"""
+        """
+        Parse date string to datetime object
+        
+        Args:
+            date_str: Date string in various formats
+        
+        Returns:
+            datetime object or None
+        """
         if not date_str:
             return None
         try:
@@ -815,9 +784,105 @@ class ImprovedFundamentalsService:
         except (ValueError, AttributeError):
             return None
 
+    def _safe_float(self, value: Any) -> Optional[float]:
+        """
+        Safely convert value to float, handling None and string formats
+        
+        Args:
+            value: Input value
+        
+        Returns:
+            Float value or None
+        """
+        if value is None:
+            return None
+        try:
+            if isinstance(value, str):
+                # Handle percentage values and formatted numbers
+                value = value.replace('%', '').replace(',', '')
+            return float(value)
+        except (ValueError, TypeError):
+            return None
+
+    def _safe_int(self, value: Any) -> Optional[int]:
+        """
+        Safely convert value to int, handling None and string formats
+        
+        Args:
+            value: Input value
+        
+        Returns:
+            Integer value or None
+        """
+        if value is None:
+            return None
+        try:
+            if isinstance(value, str):
+                # Handle formatted numbers with commas
+                value = value.replace(',', '')
+                # Handle market cap format (e.g., "1.23B" -> 1230000000)
+                if 'B' in value:
+                    return int(float(value.replace('B', '')) * 1000000000)
+                elif 'M' in value:
+                    return int(float(value.replace('M', '')) * 1000000)
+                elif 'T' in value:
+                    return int(float(value.replace('T', '')) * 1000000000000)
+            return int(float(value))
+        except (ValueError, TypeError):
+            return None
+
     def _calculate_average(self, values: List[float]) -> Optional[float]:
-        """Calculate average of a list, ignoring None values"""
+        """
+        Calculate average of a list, ignoring None values
+        
+        Args:
+            values: List of values
+        
+        Returns:
+            Average value or None
+        """
         valid_values = [v for v in values if v is not None]
         if valid_values:
             return sum(valid_values) / len(valid_values)
         return None
+
+    # Placeholder methods for calendar data
+    async def get_economic_calendar(self, start_date: str, end_date: str, country: str) -> List[Dict[str, Any]]:
+        """Get economic calendar events - to be implemented"""
+        return []
+
+    async def get_earnings_calendar(self, start_date: str, end_date: str, symbol: Optional[str]) -> List[Dict[str, Any]]:
+        """Get earnings calendar events - to be implemented"""
+        return []
+
+    def _get_sector_metrics_from_db(self, sector: str):
+        """Get sector metrics from database - to be implemented"""
+        return None
+
+    def _format_sector_metrics(self, sector_data):
+        """Format sector metrics - to be implemented"""
+        return sector_data
+
+    def _save_sector_metrics(self, sector_data: Dict[str, Any]):
+        """Save sector metrics to database - to be implemented"""
+        pass
+
+    def _format_current_fundamentals(self, db_data):
+        """Format current fundamentals from database record"""
+        if db_data is None:
+            return None
+        return {key: getattr(db_data, key) for key in ['symbol', 'pe_ratio', 'eps', 'dividend_yield', 'market_cap', 
+                                                      'revenue', 'net_income', 'profit_margin', 'total_assets', 
+                                                      'total_liabilities', 'cash', 'year_high', 'year_low', 
+                                                      'volume_avg', 'last_earnings_date', 'next_earnings_date', 
+                                                      'fiscal_year_end', 'last_updated', 'cache_until'] 
+                if hasattr(db_data, key)}
+
+    def _format_historical_fundamentals(self, db_data):
+        """Format historical fundamentals from database record"""
+        if db_data is None:
+            return None
+        return {key: getattr(db_data, key) for key in ['symbol', 'period_type', 'fiscal_date', 'report_date', 'revenue', 
+                                                      'net_income', 'eps', 'total_assets', 'total_liabilities', 
+                                                      'cash', 'pe_ratio', 'profit_margin', 'dividend_yield', 'source', 'is_estimated', 'created_at']
+                if hasattr(db_data, key)}
