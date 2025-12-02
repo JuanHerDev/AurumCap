@@ -193,3 +193,43 @@ def get_performance_metrics(
     crud = PortfolioCRUD(db)
     performance = crud.get_performance_metrics(current_user.id)
     return PerformanceResponse(**performance)
+
+@router.get("/investment-cards", response_model=List[InvestmentCardResponse])
+def get_investment_cards(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get data formatted specifically for investment cards like HAPI"""
+    crud = PortfolioCRUD(db)
+    cards_data = crud.get_investment_cards_data(current_user.id)
+    return cards_data
+
+@router.get("/investment-detail/{investment_id}", response_model=InvestmentModalResponse)
+def get_investment_modal_data(
+    investment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get detailed data for investment modal"""
+    crud = PortfolioCRUD(db)
+    detail = crud.get_investment_modal_data(investment_id, current_user.id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Investment not found")
+    return InvestmentModalResponse(**detail)
+
+@router.get("/sparkline/{symbol}")
+def get_sparkline_data(
+    symbol: str,
+    asset_type: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get sparkline data for investment cards"""
+    crud = PortfolioCRUD(db)
+    
+    if asset_type == 'crypto':
+        sparkline_data = crud.crypto_service.get_sparkline_data(symbol, days=7)
+        return {"symbol": symbol, "sparkline_data": sparkline_data}
+    else:
+        # Para stocks, podrías integrar con TwelveData
+        return {"symbol": symbol, "sparkline_data": []}

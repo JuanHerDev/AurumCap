@@ -80,8 +80,9 @@ class ImprovedFundamentalsService:
                 self._fundamentals_cache[cache_key] = (fundamentals_data, datetime.now())
                 return fundamentals_data
             
-            # Try multiple REAL data sources in order of preference
-            fundamentals_data = await self._fetch_from_multiple_real_sources(symbol_upper)
+            # Try multiple REAL data sources and COMBINE them for better data completeness
+            # Primary: Yahoo Finance, Secondary: FinnHub, Tertiary: Alpha Vantage
+            fundamentals_data = await self._fetch_and_combine_multiple_sources(symbol_upper)
             
             if not fundamentals_data:
                 logger.error(f"All real data sources failed for {symbol_upper}")
@@ -108,37 +109,84 @@ class ImprovedFundamentalsService:
                 return self._format_current_fundamentals(db_fundamentals)
             return None
 
-    async def _fetch_from_multiple_real_sources(self, symbol: str) -> Optional[Dict[str, Any]]:
+    async def _fetch_and_combine_multiple_sources(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
-        Try multiple REAL data sources in sequence with fallback strategy
+        Fetch data from multiple sources and combine them for maximum completeness
+        Primary: Yahoo Finance, Secondary: FinnHub, Tertiary: Alpha Vantage
         
         Args:
             symbol: Stock symbol
         
         Returns:
-            Fundamental data from the first successful source
+            Combined fundamental data from multiple sources
         """
-        # Define sources in order of preference
+        # Try all sources with Yahoo Finance as primary
         sources = [
-            self._fetch_finnhub_fundamentals,
-            self._fetch_alpha_vantage_fundamentals,
-            self._fetch_yahoo_finance_fundamentals  # Yahoo Finance as fallback (no API key required)
+            self._fetch_yahoo_finance_fundamentals,  # Primary source - most complete
+            self._fetch_finnhub_fundamentals,        # Secondary source
+            self._fetch_alpha_vantage_fundamentals   # Tertiary source
         ]
         
-        for source in sources:
-            try:
-                logger.info(f"Trying {source.__name__} for {symbol}")
-                data = await source(symbol)
-                if data and self._validate_real_fundamentals_data(data):
-                    logger.info(f"Successfully fetched REAL data for {symbol} from {source.__name__}")
-                    return data
-                else:
-                    logger.warning(f"Invalid data from {source.__name__} for {symbol}")
-            except Exception as e:
-                logger.warning(f"Source {source.__name__} failed for {symbol}: {str(e)}")
-                continue
+        # Gather data from all sources concurrently
+        tasks = [source(symbol) for source in sources]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        return None
+        # Start with Yahoo Finance as base (primary source)
+        combined_data = None
+        sources_used = []
+        
+        # Process results in order of priority
+        for i, result in enumerate(results):
+            source_name = sources[i].__name__
+            
+            if isinstance(result, Exception):
+                logger.warning(f"Source {source_name} failed: {str(result)}")
+                continue
+                
+            if result and self._validate_real_fundamentals_data(result):
+                if combined_data is None:
+                    # Use first valid source as base
+                    combined_data = result.copy()
+                    sources_used.append(source_name)
+                    logger.info(f"Using {source_name} as base for {symbol}")
+                else:
+                    # Merge additional data from other sources, filling null values
+                    sources_used.append(source_name)
+                    combined_data = self._merge_fundamentals_data(combined_data, result)
+        
+        if not combined_data:
+            logger.error(f"No valid data sources for {symbol}")
+            return None
+        
+        # Add metadata
+        combined_data['last_updated'] = datetime.now()
+        combined_data['cache_until'] = datetime.now() + self.cache_durations['current_fundamentals']
+        combined_data['source'] = 'combined_multiple_sources'
+        combined_data['sources_used'] = sources_used
+        
+        logger.info(f"Successfully combined data from {len(sources_used)} sources for {symbol}: {sources_used}")
+        return combined_data
+
+    def _merge_fundamentals_data(self, base_data: Dict[str, Any], additional_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Merge fundamental data from multiple sources, filling null values in base data
+        
+        Args:
+            base_data: Primary data (Yahoo Finance)
+            additional_data: Secondary data to merge
+        
+        Returns:
+            Merged data with filled null values
+        """
+        merged_data = base_data.copy()
+        
+        for key, value in additional_data.items():
+            # Only fill if base data has null and additional data has value
+            if merged_data.get(key) is None and value is not None:
+                merged_data[key] = value
+                logger.debug(f"Filled {key} from secondary source: {value}")
+        
+        return merged_data
 
     def _validate_real_fundamentals_data(self, data: Dict[str, Any]) -> bool:
         """
@@ -158,15 +206,216 @@ class ImprovedFundamentalsService:
             return False
         
         # Check if we have at least some meaningful financial data
-        financial_fields = ['pe_ratio', 'eps', 'market_cap', 'revenue', 'net_income', 'price_to_book']
+        financial_fields = ['pe_ratio', 'eps', 'market_cap', 'revenue', 'net_income', 'price_to_book', 'current_price']
         financial_data_count = sum(1 for field in financial_fields if data.get(field) is not None)
         
         # We need at least 2 financial fields to consider data valid
         return financial_data_count >= 2
 
+    async def _fetch_yahoo_finance_fundamentals(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch REAL fundamentals from Yahoo Finance - PRIMARY data source (Most complete)
+        
+        Args:
+            symbol: Stock symbol
+        
+        Returns:
+            Yahoo Finance fundamental data or None if failed
+        """
+        try:
+            # Use yfinance library to get real data from Yahoo Finance
+            logger.info(f"Fetching Yahoo Finance data for {symbol}")
+            
+            # Create ticker object
+            ticker = yf.Ticker(symbol)
+            
+            # Get stock info
+            info = ticker.info
+            
+            if not info:
+                logger.warning(f"No info available from Yahoo Finance for {symbol}")
+                return None
+            
+            # Get financial statements for additional data
+            try:
+                financials = ticker.financials
+                balance_sheet = ticker.balance_sheet
+                cash_flow = ticker.cashflow
+            except Exception as e:
+                logger.warning(f"Could not fetch financial statements for {symbol}: {str(e)}")
+                financials = None
+                balance_sheet = None
+                cash_flow = None
+            
+            # Get earnings dates
+            try:
+                earnings_dates = ticker.earnings_dates
+                if earnings_dates is not None and not earnings_dates.empty:
+                    last_earnings = earnings_dates.index[-1] if len(earnings_dates) > 0 else None
+                    next_earnings = earnings_dates.index[-2] if len(earnings_dates) > 1 else None
+                else:
+                    last_earnings = None
+                    next_earnings = None
+            except Exception as e:
+                logger.warning(f"Could not fetch earnings dates for {symbol}: {str(e)}")
+                last_earnings = None
+                next_earnings = None
+            
+            # Extract comprehensive fundamental data from Yahoo Finance
+            fundamentals = {
+                'symbol': symbol,
+                'company_name': info.get('longName'),
+                'sector': info.get('sector'),
+                'industry': info.get('industry'),
+                'currency': info.get('currency', 'USD'),
+                'source': 'yahoo_finance',
+                
+                # Valuation metrics
+                'pe_ratio': info.get('trailingPE'),
+                'forward_pe': info.get('forwardPE'),
+                'eps': info.get('trailingEps'),
+                'forward_eps': info.get('forwardEps'),
+                'market_cap': info.get('marketCap'),
+                'enterprise_value': info.get('enterpriseValue'),
+                'enterprise_to_revenue': info.get('enterpriseToRevenue'),
+                'enterprise_to_ebitda': info.get('enterpriseToEbitda'),
+                
+                # Price metrics
+                'current_price': info.get('currentPrice'),
+                'target_mean_price': info.get('targetMeanPrice'),
+                'target_high_price': info.get('targetHighPrice'),
+                'target_low_price': info.get('targetLowPrice'),
+                'year_high': info.get('fiftyTwoWeekHigh'),
+                'year_low': info.get('fiftyTwoWeekLow'),
+                
+                # Dividend information
+                'dividend_yield': info.get('dividendYield'),
+                'dividend_rate': info.get('dividendRate'),
+                'payout_ratio': info.get('payoutRatio'),
+                'dividend_date': info.get('dividendDate'),
+                'ex_dividend_date': info.get('exDividendDate'),
+                
+                # Financial ratios
+                'price_to_book': info.get('priceToBook'),
+                'price_to_sales': info.get('priceToSalesTrailing12Months'),
+                'profit_margin': info.get('profitMargins'),
+                'operating_margin': info.get('operatingMargins'),
+                'return_on_equity': info.get('returnOnEquity'),
+                'return_on_assets': info.get('returnOnAssets'),
+                'debt_to_equity': info.get('debtToEquity'),
+                'current_ratio': info.get('currentRatio'),
+                'quick_ratio': info.get('quickRatio'),
+                
+                # Growth metrics
+                'revenue_growth': info.get('revenueGrowth'),
+                'earnings_growth': info.get('earningsGrowth'),
+                'eps_growth': info.get('epsGrowth'),
+                
+                # Volume and liquidity
+                'volume_avg': info.get('averageVolume'),
+                'volume_avg_10day': info.get('averageVolume10days'),
+                'beta': info.get('beta'),
+                
+                # Company information
+                'exchange': info.get('exchange'),
+                'country': info.get('country'),
+                'website': info.get('website'),
+                'employees': info.get('fullTimeEmployees'),
+                'description': info.get('longBusinessSummary'),
+                
+                # Earnings dates
+                'last_earnings_date': last_earnings,
+                'next_earnings_date': next_earnings,
+                'fiscal_year_end': info.get('fiscalYearEnd'),
+            }
+            
+            # Add financial data from financial statements if available
+            if financials is not None and not financials.empty:
+                try:
+                    # Get the most recent period (first column)
+                    if len(financials.columns) > 0:
+                        latest_period = financials.columns[0]
+                        fundamentals.update({
+                            'revenue': financials.loc['Total Revenue', latest_period] if 'Total Revenue' in financials.index else None,
+                            'gross_profit': financials.loc['Gross Profit', latest_period] if 'Gross Profit' in financials.index else None,
+                            'operating_income': financials.loc['Operating Income', latest_period] if 'Operating Income' in financials.index else None,
+                            'net_income': financials.loc['Net Income', latest_period] if 'Net Income' in financials.index else None,
+                            'ebitda': financials.loc['EBITDA', latest_period] if 'EBITDA' in financials.index else None,
+                        })
+                except Exception as e:
+                    logger.warning(f"Error parsing Yahoo Finance financials for {symbol}: {str(e)}")
+            
+            # Add balance sheet data if available
+            if balance_sheet is not None and not balance_sheet.empty:
+                try:
+                    if len(balance_sheet.columns) > 0:
+                        latest_period = balance_sheet.columns[0]
+                        fundamentals.update({
+                            'total_assets': balance_sheet.loc['Total Assets', latest_period] if 'Total Assets' in balance_sheet.index else None,
+                            'total_liabilities': balance_sheet.loc['Total Liabilities', latest_period] if 'Total Liabilities' in balance_sheet.index else None,
+                            'total_equity': balance_sheet.loc['Total Stockholder Equity', latest_period] if 'Total Stockholder Equity' in balance_sheet.index else None,
+                            'cash': balance_sheet.loc['Cash', latest_period] if 'Cash' in balance_sheet.index else 
+                                   balance_sheet.loc['Cash And Cash Equivalents', latest_period] if 'Cash And Cash Equivalents' in balance_sheet.index else None,
+                            'long_term_debt': balance_sheet.loc['Long Term Debt', latest_period] if 'Long Term Debt' in balance_sheet.index else None,
+                            'short_term_debt': balance_sheet.loc['Short Long Term Debt', latest_period] if 'Short Long Term Debt' in balance_sheet.index else None,
+                        })
+                except Exception as e:
+                    logger.warning(f"Error parsing Yahoo Finance balance sheet for {symbol}: {str(e)}")
+            
+            # Add cash flow data if available
+            if cash_flow is not None and not cash_flow.empty:
+                try:
+                    if len(cash_flow.columns) > 0:
+                        latest_period = cash_flow.columns[0]
+                        fundamentals.update({
+                            'operating_cash_flow': cash_flow.loc['Operating Cash Flow', latest_period] if 'Operating Cash Flow' in cash_flow.index else None,
+                            'free_cash_flow': cash_flow.loc['Free Cash Flow', latest_period] if 'Free Cash Flow' in cash_flow.index else None,
+                        })
+                except Exception as e:
+                    logger.warning(f"Error parsing Yahoo Finance cash flow for {symbol}: {str(e)}")
+            
+            # Calculate derived metrics if needed
+            self._calculate_derived_metrics(fundamentals)
+            
+            logger.info(f"Successfully retrieved comprehensive Yahoo Finance data for {symbol}")
+            return fundamentals
+            
+        except Exception as e:
+            logger.error(f"Yahoo Finance API error for {symbol}: {str(e)}")
+            return None
+
+    def _calculate_derived_metrics(self, fundamentals: Dict[str, Any]):
+        """
+        Calculate derived metrics when raw data is available
+        
+        Args:
+            fundamentals: Fundamentals data dictionary
+        """
+        try:
+            # Calculate profit margin if we have revenue and net income
+            if fundamentals.get('revenue') and fundamentals.get('net_income') and fundamentals.get('revenue') != 0:
+                fundamentals['calculated_profit_margin'] = (fundamentals['net_income'] / fundamentals['revenue']) * 100
+            
+            # Calculate P/E ratio if we have price and EPS but no P/E
+            if (fundamentals.get('current_price') and 
+                fundamentals.get('eps') and 
+                fundamentals.get('eps') != 0 and 
+                not fundamentals.get('pe_ratio')):
+                fundamentals['calculated_pe_ratio'] = fundamentals['current_price'] / fundamentals['eps']
+            
+            # Use calculated values if original is None
+            if fundamentals.get('profit_margin') is None and fundamentals.get('calculated_profit_margin'):
+                fundamentals['profit_margin'] = fundamentals['calculated_profit_margin']
+            
+            if fundamentals.get('pe_ratio') is None and fundamentals.get('calculated_pe_ratio'):
+                fundamentals['pe_ratio'] = fundamentals['calculated_pe_ratio']
+                
+        except Exception as e:
+            logger.warning(f"Error calculating derived metrics: {str(e)}")
+
     async def _fetch_finnhub_fundamentals(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
-        Fetch REAL fundamentals from FinnHub API - Primary data source
+        Fetch REAL fundamentals from FinnHub API - SECONDARY data source
         
         Args:
             symbol: Stock symbol
@@ -225,8 +474,6 @@ class ImprovedFundamentalsService:
                 # Build fundamentals with available data
                 fundamentals = {
                     'symbol': symbol,
-                    'last_updated': datetime.now(),
-                    'cache_until': datetime.now() + self.cache_durations['current_fundamentals'],
                     'source': 'finnhub'
                 }
                 
@@ -257,6 +504,10 @@ class ImprovedFundamentalsService:
                         'price_to_book': metrics.get('pbAnnual'),
                         'price_to_sales': metrics.get('psAnnual'),
                         'profit_margin': metrics.get('netMarginAnnual'),
+                        'revenue_per_share': metrics.get('revenuePerShareAnnual'),
+                        'total_assets': metrics.get('totalAssets'),
+                        'total_liabilities': metrics.get('totalDebt'),
+                        'cash': metrics.get('cashAndEquivalents'),
                     })
                 
                 return fundamentals
@@ -267,7 +518,7 @@ class ImprovedFundamentalsService:
 
     async def _fetch_alpha_vantage_fundamentals(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
-        Fetch REAL fundamentals from Alpha Vantage API - Secondary data source
+        Fetch REAL fundamentals from Alpha Vantage API - TERTIARY data source
         
         Args:
             symbol: Stock symbol
@@ -311,13 +562,11 @@ class ImprovedFundamentalsService:
                             # Parse Alpha Vantage data
                             fundamentals = {
                                 'symbol': symbol,
+                                'source': 'alpha_vantage',
                                 'company_name': overview_data.get('Name'),
                                 'sector': overview_data.get('Sector'),
                                 'industry': overview_data.get('Industry'),
                                 'currency': 'USD',
-                                'last_updated': datetime.now(),
-                                'cache_until': datetime.now() + self.cache_durations['current_fundamentals'],
-                                'source': 'alpha_vantage',
                                 'pe_ratio': self._safe_float(overview_data.get('PERatio')),
                                 'eps': self._safe_float(overview_data.get('EPS')),
                                 'dividend_yield': self._safe_float(overview_data.get('DividendYield')),
@@ -335,6 +584,8 @@ class ImprovedFundamentalsService:
                                 'description': overview_data.get('Description'),
                                 'price_to_book': self._safe_float(overview_data.get('PriceToBookRatio')),
                                 'price_to_sales': self._safe_float(overview_data.get('PriceToSalesRatioTTM')),
+                                'return_on_equity': self._safe_float(overview_data.get('ReturnOnEquityTTM')),
+                                'debt_to_equity': self._safe_float(overview_data.get('DebtToEquity')),
                             }
                             
                             return fundamentals
@@ -347,83 +598,6 @@ class ImprovedFundamentalsService:
                         
         except Exception as e:
             logger.error(f"Alpha Vantage API error for {symbol}: {str(e)}")
-            return None
-
-    async def _fetch_yahoo_finance_fundamentals(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """
-        Fetch REAL fundamentals from Yahoo Finance - Third data source (No API key required)
-        
-        Args:
-            symbol: Stock symbol
-        
-        Returns:
-            Yahoo Finance fundamental data or None if failed
-        """
-        try:
-            # Use yfinance library to get real data from Yahoo Finance
-            logger.info(f"Fetching Yahoo Finance data for {symbol}")
-            
-            # Create ticker object
-            ticker = yf.Ticker(symbol)
-            
-            # Get stock info
-            info = ticker.info
-            
-            if not info:
-                logger.warning(f"No info available from Yahoo Finance for {symbol}")
-                return None
-            
-            # Extract fundamental data
-            fundamentals = {
-                'symbol': symbol,
-                'company_name': info.get('longName'),
-                'sector': info.get('sector'),
-                'industry': info.get('industry'),
-                'currency': info.get('currency', 'USD'),
-                'last_updated': datetime.now(),
-                'cache_until': datetime.now() + self.cache_durations['current_fundamentals'],
-                'source': 'yahoo_finance',
-                # Valuation metrics
-                'pe_ratio': info.get('trailingPE'),
-                'forward_pe': info.get('forwardPE'),
-                'eps': info.get('trailingEps'),
-                'forward_eps': info.get('forwardEps'),
-                'market_cap': info.get('marketCap'),
-                'enterprise_value': info.get('enterpriseValue'),
-                # Price metrics
-                'current_price': info.get('currentPrice'),
-                'target_mean_price': info.get('targetMeanPrice'),
-                'target_high_price': info.get('targetHighPrice'),
-                'target_low_price': info.get('targetLowPrice'),
-                'year_high': info.get('fiftyTwoWeekHigh'),
-                'year_low': info.get('fiftyTwoWeekLow'),
-                # Dividend information
-                'dividend_yield': info.get('dividendYield'),
-                'dividend_rate': info.get('dividendRate'),
-                'payout_ratio': info.get('payoutRatio'),
-                # Financial ratios
-                'price_to_book': info.get('priceToBook'),
-                'price_to_sales': info.get('priceToSalesTrailing12Months'),
-                'profit_margin': info.get('profitMargins'),
-                'operating_margin': info.get('operatingMargins'),
-                'return_on_equity': info.get('returnOnEquity'),
-                'return_on_assets': info.get('returnOnAssets'),
-                # Volume and liquidity
-                'volume_avg': info.get('averageVolume'),
-                'beta': info.get('beta'),
-                # Company information
-                'exchange': info.get('exchange'),
-                'country': info.get('country'),
-                'website': info.get('website'),
-                'employees': info.get('fullTimeEmployees'),
-                'description': info.get('longBusinessSummary'),
-            }
-            
-            logger.info(f"Successfully retrieved Yahoo Finance data for {symbol}")
-            return fundamentals
-            
-        except Exception as e:
-            logger.error(f"Yahoo Finance API error for {symbol}: {str(e)}")
             return None
 
     async def get_historical_fundamentals(self, symbol: str, period_type: str = 'annual', 

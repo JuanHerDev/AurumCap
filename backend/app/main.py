@@ -11,7 +11,7 @@ from app.models.platform import Platform
 # Import Routers
 from app.routers.auth import auth as auth_routes
 from app.routers import platforms
-from app.routers import users, portfolio, stocks, debug, setup, fundamentals_unified, crypto, crypto_enhanced
+from app.routers import users, portfolio, stocks, debug, setup, fundamentals_unified, crypto, crypto_enhanced, portfolio_advanced
 
 # Import Middleware and Config
 from app.middleware.security_logger import SecutiryLoggerMiddleware
@@ -59,6 +59,7 @@ app.include_router(auth_routes.router)
 app.include_router(users.router)
 app.include_router(platforms.router)
 app.include_router(portfolio.router)
+app.include_router(portfolio_advanced.router)
 app.include_router(stocks.router)
 app.include_router(crypto.router)
 app.include_router(crypto_enhanced.router)
