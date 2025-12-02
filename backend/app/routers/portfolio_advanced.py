@@ -22,8 +22,6 @@ from app.models.investment_goal import InvestmentGoal
 from app.models.dividend import Dividend
 from app.models.price_alert import PriceAlert
 
-from app.services.portfolio_advanced import PortfolioAdvancedService
-
 router = APIRouter(prefix="/portfolio/advanced", tags=["portfolio-advanced"])
 
 # RISK PROFILE ENDPOINTS

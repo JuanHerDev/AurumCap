@@ -1,47 +1,32 @@
-// app/portfolio/page.tsx
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { usePortfolio } from "@/hooks/usePortfolio";
-import { useLivePrices } from "@/hooks/useLivePrices";
 import InvestmentModal from "@/components/portfolio/InvestmentModal";
 import AssetDistribution from "@/components/portfolio/AssetDistribution";
 import InvestmentList from "@/components/portfolio/InvestmentList";
 import PortfolioHeader from "@/components/portfolio/PortfolioHeader";
-import { 
-  FaPlus, 
-  FaSyncAlt, 
-  FaChartPie, 
-  FaList,
-  FaHome,
-  FaUser,
-  FaBriefcase
-} from "react-icons/fa";
-import { useRouter } from "next/navigation";
+import { FaPlus } from "react-icons/fa";
 
 export default function PortfolioPage() {
   const {
     investments,
+    summary,
+    allocations,
     loading,
     error,
     refresh,
-    create,
-    update,
-    remove,
-  } = usePortfolio();
-
-  const {
-    investments: pricedInvestments,
-    loading: priceLoading,
+    createInvestment,
+    updateInvestment,
+    deleteInvestment,
     portfolioMetrics,
-  } = useLivePrices(investments, 15000);
+  } = usePortfolio();
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingInvestment, setEditingInvestment] = useState<any | null>(null);
   const [activeTab, setActiveTab] = useState<"distribution" | "list">("distribution");
-  const router = useRouter();
 
-  // Función para formatear dinero
+  // Format money function
   const formatMoney = (n: number) => {
     return n?.toLocaleString("en-US", {
       style: "currency",
@@ -50,20 +35,21 @@ export default function PortfolioPage() {
     });
   };
 
-  // Manejar creación/edición de inversiones
+  // Handle create investment
   const handleCreate = async (payload: any) => {
     try {
-      await create(payload);
+      await createInvestment(payload);
       setModalOpen(false);
     } catch (error) {
       console.error("Error creating investment:", error);
     }
   };
 
+  // Handle edit investment
   const handleEdit = async (payload: any) => {
     if (!editingInvestment) return;
     try {
-      await update(editingInvestment.id, payload);
+      await updateInvestment(editingInvestment.id, payload);
       setModalOpen(false);
       setEditingInvestment(null);
     } catch (error) {
@@ -71,36 +57,37 @@ export default function PortfolioPage() {
     }
   };
 
+  // Handle delete investment
   const handleDelete = async (investment: any) => {
-    if (!confirm(`¿Eliminar ${investment.symbol}?`)) return;
+    if (!confirm(`Are you sure you want to delete ${investment.symbol}?`)) return;
     try {
-      await remove(investment.id);
+      await deleteInvestment(investment.id);
     } catch (error) {
       console.error("Error deleting investment:", error);
     }
   };
 
-  if (loading) {
+  if (loading && !investments.length) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="w-8 h-8 border-4 border-[#B59F50] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-500 text-sm">Cargando portafolio…</p>
+          <p className="text-gray-500 text-sm">Loading portfolio...</p>
         </div>
       </div>
     );
   }
 
-  if (error) {
+  if (error && !investments.length) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-red-500 mb-4">Error cargando datos: {String(error)}</p>
+          <p className="text-red-500 mb-4">Error loading portfolio: {error.message}</p>
           <button
-            onClick={() => refresh?.()}
-            className="px-4 py-2 bg-[#B59F50] text-black rounded-lg hover:bg-[#A68F45] transition-colors"
+            onClick={refresh}
+            className="px-4 py-2 bg-[#B59F50] text-white rounded-lg hover:bg-[#A68F45] transition-colors"
           >
-            Reintentar
+            Retry
           </button>
         </div>
       </div>
@@ -111,15 +98,20 @@ export default function PortfolioPage() {
     <div className="min-h-screen bg-gray-50 pb-16">
       {/* Header */}
       <PortfolioHeader 
-        portfolioMetrics={portfolioMetrics}
+        portfolioMetrics={portfolioMetrics || {
+          totalInvested: summary?.total_invested || 0,
+          totalCurrentValue: summary?.total_value || 0,
+          totalGain: summary?.total_gain || 0,
+          totalROI: summary?.total_roi || 0,
+        }}
         onRefresh={refresh}
-        loading={loading || priceLoading}
+        loading={loading}
         formatMoney={formatMoney}
       />
 
       {/* Main Content */}
       <div className="p-4 max-w-6xl mx-auto">
-        {/* Tabs de Navegación */}
+        {/* Navigation Tabs */}
         <div className="bg-white rounded-2xl p-1 shadow-sm mb-6">
           <div className="flex space-x-1">
             <button
@@ -130,10 +122,7 @@ export default function PortfolioPage() {
                   : "text-gray-500 hover:text-gray-700"
               }`}
             >
-              <div className="flex items-center justify-center gap-2">
-                <FaChartPie size={16} />
-                <span>Distribución</span>
-              </div>
+              Distribution
             </button>
             <button
               onClick={() => setActiveTab("list")}
@@ -143,23 +132,20 @@ export default function PortfolioPage() {
                   : "text-gray-500 hover:text-gray-700"
               }`}
             >
-              <div className="flex items-center justify-center gap-2">
-                <FaList size={16} />
-                <span>Lista</span>
-              </div>
+              List
             </button>
           </div>
         </div>
 
-        {/* Contenido de Tabs */}
+        {/* Tab Content */}
         {activeTab === "distribution" ? (
           <AssetDistribution 
-            investments={pricedInvestments}
+            investments={investments}
             formatMoney={formatMoney}
           />
         ) : (
           <InvestmentList 
-            investments={pricedInvestments}
+            investments={investments}
             onEdit={(investment) => {
               setEditingInvestment(investment);
               setModalOpen(true);
@@ -182,7 +168,7 @@ export default function PortfolioPage() {
         <FaPlus size={20} />
       </button>
 
-      {/* Modal de Inversión */}
+      {/* Investment Modal */}
       <InvestmentModal
         open={modalOpen}
         investment={editingInvestment}
