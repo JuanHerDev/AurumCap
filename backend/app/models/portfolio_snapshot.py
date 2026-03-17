@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, Float, ForeignKey, DateTime
 from datetime import datetime
-from app.db.base import Base
+from app.db.base_class import Base
 
 class PortfolioSnapshot(Base):
     __tablename__ = "portfolio_snapshots"
