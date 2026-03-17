@@ -1,27 +1,13 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.models.asset import Asset
 from app.services.price_service import get_price
+from app.schemas.price import PriceResponse
 
-router = APIRouter(
-    prefix="/price", tags=["Prices"]
-)
+router = APIRouter(prefix="/price", tags=["Prices"])
 
-@router.get("/{symbol}")
-def price(symbol: str, db: Session = Depends(get_db)):
 
-    asset = db.query(Asset).filter(
-        Asset.symbol == symbol.upper()
-    ).first()
-
-    if not asset:
-        return {"error": "asset not found"}
-    
-    price = get_price(asset)
-
-    return {
-        "symbol": symbol,
-        "price": price
-    }
+@router.get("/{symbol}", response_model=PriceResponse)
+async def price_endpoint(symbol: str, db: AsyncSession = Depends(get_db)):
+    return await get_price(symbol, db)

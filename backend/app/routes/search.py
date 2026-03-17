@@ -1,20 +1,17 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.models.asset import Asset
-from app.services.price_service import get_price
+from app.services.search_service import search_assets
+from app.schemas.search import SearchResponse
 
-router = APIRouter(
-    prefix="/search", tags=["Search Assets"]
-)
+router = APIRouter(prefix="/search", tags=["Search"])
 
-@router.get("")
-def search_assets(q: str, db: Session = Depends(get_db)):
 
-    assets = db.query(Asset).filter(
-        Asset.symbol.ilike(f"%{q}%") |
-        Asset.name.ilike(f"%{q}%")
-    ).limit(20).all()
-
-    return assets
+@router.get("", response_model=SearchResponse)
+async def search_endpoint(
+    q: str = Query(..., min_length=1, max_length=50),
+    limit: int = Query(default=10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    return await search_assets(q, db, limit)
