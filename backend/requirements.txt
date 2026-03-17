@@ -1,0 +1,47 @@
+# List of dependencies for AurumCap backend funcionality.
+# To install run: 'pip install -r requirements.txt' in terminal (backend)
+
+fastapi
+uvicorn[standard]
+requests
+
+# APIs
+massive
+finnhub-python
+
+# database
+sqlalchemy
+psycopg2-binary
+asyncpg
+alembic
+
+# validation
+pydantic
+pydantic-settings
+
+# auth
+python-jose[cryptography]
+passlib[bcrypt]
+
+# env
+python-dotenv
+
+# requests APIs
+httpx
+
+# caching
+redis
+
+# background tasks
+celery
+
+# utils
+python-dateutil
+
+# testing
+pytest
+pytest-asyncio
+httpx
+
+# security
+slowapi

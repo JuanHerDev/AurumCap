@@ -1,0 +1,115 @@
+# --- Python / general ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+*.egg
+*.whl
+pip-wheel-metadata/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Environment files (sensitive)
+.env
+.env.*
+*.env
+!.env.example
+
+# Logs / runtime
+*.log
+*.pid
+tmp/
+tmp/**
+
+# Pytest / testing
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Type check / caches
+.mypy_cache/
+.pytype/
+.cache/
+.pyright/
+
+# Build / distribution
+build/
+dist/
+
+# Alembic - ignore compiled files only (keep migrations source!)
+alembic/__pycache__/
+alembic/versions/__pycache__/
+alembic/versions/*.pyc
+alembic/*.pyc
+
+# --- Docker ---
+/docker-compose.override.yml
+/.env.docker
+docker-compose.override.yml
+docker-compose.*.yml
+*.container
+*.pid
+*.tmp
+
+# Docker local artifacts
+data/
+volumes/
+docker-data/
+docker-volume/
+docker-cache/
+
+# Docker Desktop for Windows
+*.raw
+
+# --- Node / Frontend (if frontend lives in repo) ---
+node_modules/
+.next/
+.npm/
+.yarn/
+.pnpm-store/
+pnpm-lock.yaml
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Frontend build artifacts
+out/
+build/
+dist/
+
+# Editor / IDE for frontend
+.vscode/
+
+# --- Database files ---
+*.sqlite
+*.sqlite3
+*.db
+
+# --- Redis ---
+dump.rdb
+*.rdb
+
+# --- Uvicorn ---
+uvicorn.log
+uvicorn.pid
+
+# --- Misc ---
+coverage/
+reports/
+*.orig
+*.bak
+todo.txt
