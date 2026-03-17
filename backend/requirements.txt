@@ -8,6 +8,7 @@ requests
 # APIs
 massive
 finnhub-python
+twelvedata
 
 # database
 sqlalchemy
@@ -17,9 +18,12 @@ alembic
 
 # validation
 pydantic
+pydantic[email]
 pydantic-settings
 
 # auth
+pyjwt
+bcrypt
 python-jose[cryptography]
 passlib[bcrypt]
 

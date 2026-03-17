@@ -2,7 +2,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from app.core.settings import settings
 from app.db.init_db import init_db
-from app.routes import portfolio, price, search
+from app.db.session import engine
+from app.routes import portfolio, price, search, fundamentals, market, auth
 from app.providers.coinmarketcap_provider import coinmarketcap_provider
 from app.providers.finnhub_provider import finnhub_provider
 
@@ -11,7 +12,7 @@ import uvicorn
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    init_db()
+    await init_db()
     
     # TODO: await init_redis() with caché
     yield
@@ -19,6 +20,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     await coinmarketcap_provider.close()
     finnhub_provider._client.close()
+    await engine.dispose() 
     # TODO: await close_redis() with caché
 
 
@@ -37,6 +39,9 @@ def root():
 app.include_router(portfolio.router)
 app.include_router(price.router)
 app.include_router(search.router)
+app.include_router(fundamentals.router)
+app.include_router(market.router)
+app.include_router(auth.router)
 
 
 

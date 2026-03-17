@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     COINMARKETCAP_API_KEY: str
     MASSIVE_API_KEY: str
     FINNHUB_API_KEY: str
+    TWELVEDATA_API_KEY: str
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379"
@@ -16,6 +17,9 @@ class Settings(BaseSettings):
     # App
     APP_ENV: str = "development"
     DEBUG: bool = True
+
+    JWT_SECRET: str
+    JWT_EXPIRE_DAYS: int = 7
 
     model_config = SettingsConfigDict(
         env_file=".env",
