@@ -50,52 +50,45 @@ class MassiveProvider:
         self._client = RESTClient(api_key=settings.MASSIVE_API_KEY)
 
     def _get_snapshot_sync(self, symbol: str) -> Optional[StockPrice]:
+        """ Synchronous version — runs in thread pool."""
         try:
-                # prev day aggs — disponible en plan gratuito
-            aggs = list(self._client.list_aggs(
-                ticker=symbol,
-                multiplier=1,
-                timespan="day",
-                from_="2025-01-01",
-                to="2099-12-31",
-                limit=1,
-                sort="desc",
-            ))
+            # Snapshot: current price + previous day's price in a single call
+            snap = self._client.get_snapshot_ticker("stocks", symbol)
 
-            if not aggs:
+            if snap is None:
                 return None
 
-            bar = aggs[0]
+            day = snap.day
+            prev_day = snap.prev_day
 
-            open_  = getattr(bar, "open", 0) or 0
-            high   = getattr(bar, "high", 0) or 0
-            low    = getattr(bar, "low", 0) or 0
-            close  = getattr(bar, "close", 0) or 0
-            volume = int(getattr(bar, "volume", 0) or 0)
-            vwap   = getattr(bar, "vwap", close) or close
+            current_price = getattr(day, "c", None) or getattr(snap, "last_trade", {})
+            prev_close = getattr(prev_day, "c", 0) or 0
 
-            # Calcular cambio usando vwap como precio de apertura estimado
-            prev_close = open_
-            change = close - prev_close
+            # Current price: Use last_trade if day.close unavailable
+
+            if current_price is None or current_price == 0:
+                last_trade = getattr(snap, "last_trade", None)
+                current_price = getattr(last_trade, "p", 0) if last_trade else 0
+
+            change = current_price - prev_close
             change_pct = (change / prev_close * 100) if prev_close else 0.0
 
             market_status = self._get_market_status_sync()
 
             return StockPrice(
                 symbol=symbol.upper(),
-                price=round(close, 4),
-                open=round(open_, 4),
-                high=round(high, 4),
-                low=round(low, 4),
-                close=round(close, 4),
-                volume=volume,
+                price=round(current_price, 4),
+                open=getattr(day, "o", 0) or 0,
+                high=getattr(day, "h", 0) or 0,
+                low=getattr(day, "l", 0) or 0,
+                close=getattr(prev_day, "c", 0) or 0,
+                volume=int(getattr(day, "v", 0) or 0),
                 change=round(change, 4),
                 change_pct=round(change_pct, 4),
                 market_status=market_status,
             )
-
+        
         except Exception as e:
-            print(f"[MassiveProvider] Error in {symbol}: {type(e).__name__}: {e}")
             return None
         
     def _get_metadata_sync(self, symbol: str) -> Optional[AssetMetadata]:
