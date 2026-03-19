@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from app.core.settings import settings
 from app.db.init_db import init_db
 from app.db.session import engine
-from app.routes import portfolio, price, search, fundamentals, market, auth, users, transactions
+from app.routes import portfolio, price, search, fundamentals, market, auth, users, transactions, analytics, watchlist, trading
 from app.providers.coinmarketcap_provider import coinmarketcap_provider
 from app.providers.finnhub_provider import finnhub_provider
 
@@ -44,6 +44,9 @@ app.include_router(market.router)
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(transactions.router)
+app.include_router(analytics.router)
+app.include_router(watchlist.router)
+app.include_router(trading.router)
 
 
 

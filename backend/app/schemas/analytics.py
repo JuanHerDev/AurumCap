@@ -12,6 +12,7 @@ class SnapshotPoint(BaseModel):
 
 class PortfolioHistoryResponse(BaseModel):
     user_id: int
+    range: str
     snapshots: list[SnapshotPoint]
 
 
