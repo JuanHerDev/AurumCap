@@ -1,5 +1,5 @@
 from pydantic import BaseModel, field_validator
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class TransactionRequest(BaseModel):
@@ -24,6 +24,13 @@ class TransactionRequest(BaseModel):
     def validate_positive(cls, v: float) -> float:
         if v <= 0:
             raise ValueError("Must be greater than 0")
+        return v
+    
+    @field_validator("date")
+    @classmethod
+    def normalize_date(cls, v: datetime) -> datetime:
+        if v.tzinfo is not None:
+            v = v.astimezone(timezone.utc).replace(tzinfo=None)
         return v
 
 
