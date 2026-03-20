@@ -5,23 +5,30 @@ from app.providers.twelvedata_provider import twelvedata_provider
 from app.providers.coinmarketcap_provider import coinmarketcap_provider
 from app.schemas.price import PriceResponse
 from app.services.asset_service import get_or_create_asset
+from app.core.cache import cache_get, cache_set, key_price, TTL_PRICE
 
 
 async def get_price(symbol: str, db: AsyncSession) -> PriceResponse:
     symbol = symbol.upper()
 
-    asset = await get_or_create_asset(symbol, db)
+    # 1. Check cache — return immediately if price was fetched recently
+    cached = await cache_get(key_price(symbol))
+    if cached:
+        return PriceResponse(**cached)
 
+    # 2. Verify asset exists in DB or create it via provider
+    asset = await get_or_create_asset(symbol, db)
     if not asset:
         raise HTTPException(status_code=404, detail=f"Asset '{symbol}' not found")
 
+    # 3. Fetch live price from the correct provider based on asset type
     if asset.asset_type == "crypto":
         data = await coinmarketcap_provider.get_price(symbol)
 
         if not data:
             raise HTTPException(status_code=502, detail=f"Could not fetch price for '{symbol}'")
 
-        return PriceResponse(
+        response = PriceResponse(
             symbol=data.symbol,
             price=data.price,
             open=0.0,
@@ -39,13 +46,13 @@ async def get_price(symbol: str, db: AsyncSession) -> PriceResponse:
         )
 
     else:
-        # stock or ETF → Twelve Data
+        # Stock or ETF → Twelve Data
         data = await twelvedata_provider.get_price(symbol)
 
         if not data:
             raise HTTPException(status_code=502, detail=f"Could not fetch price for '{symbol}'")
 
-        return PriceResponse(
+        response = PriceResponse(
             symbol=data.symbol,
             price=data.price,
             open=data.open,
@@ -57,3 +64,8 @@ async def get_price(symbol: str, db: AsyncSession) -> PriceResponse:
             change_pct=data.change_pct,
             market_status=data.market_status,
         )
+
+    # 4. Store in cache for TTL_PRICE seconds (30s)
+    await cache_set(key_price(symbol), response.model_dump(), TTL_PRICE)
+
+    return response

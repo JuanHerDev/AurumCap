@@ -6,11 +6,9 @@ from fastapi import HTTPException
 from app.models.transaction import Transaction
 from app.models.holdings import Holdings
 from app.models.user import User
-from app.schemas.transactions import (
-    TransactionRequest,
-    TransactionResponse,
-)
+from app.schemas.transactions import TransactionRequest, TransactionResponse
 from app.services.asset_service import get_or_create_asset
+from app.services.portfolio_service import invalidate_portfolio_cache
 
 
 async def create_transaction(
@@ -19,7 +17,7 @@ async def create_transaction(
     db: AsyncSession,
 ) -> TransactionResponse:
 
-    # Verify that the asset exists or create it
+    # Verify that the asset exists or create it via provider
     asset = await get_or_create_asset(str(data.asset_id), db) \
         if isinstance(data.asset_id, str) \
         else await _get_asset_by_id(data.asset_id, db)
@@ -27,7 +25,7 @@ async def create_transaction(
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    # Create the transaction
+    # Create the transaction record
     transaction = Transaction(
         user_id=user.id,
         asset_id=asset.id,
@@ -42,7 +40,7 @@ async def create_transaction(
     db.add(transaction)
     await db.flush()
 
-    # Update holdings
+    # Update holdings based on BUY or SELL
     await _update_holdings(
         user_id=user.id,
         asset_id=asset.id,
@@ -51,6 +49,9 @@ async def create_transaction(
         price=data.price,
         db=db,
     )
+
+    # Invalidate portfolio cache — holdings have changed
+    await invalidate_portfolio_cache(user.id)
 
     return TransactionResponse(
         id=transaction.id,
@@ -159,7 +160,7 @@ async def update_transaction(
 
     tx, asset = row
 
-    # Revert old holdings before applying the update
+    # Revert the effect of the old transaction on holdings before applying update
     await _revert_holdings(
         user_id=user.id,
         asset_id=tx.asset_id,
@@ -169,7 +170,7 @@ async def update_transaction(
         db=db,
     )
 
-    # Update fields
+    # Update transaction fields
     tx.type = data.type
     tx.quantity = data.quantity
     tx.price = data.price
@@ -180,7 +181,7 @@ async def update_transaction(
     db.add(tx)
     await db.flush()
 
-    # Apply the new holding
+    # Apply the updated transaction to holdings
     await _update_holdings(
         user_id=user.id,
         asset_id=tx.asset_id,
@@ -189,6 +190,9 @@ async def update_transaction(
         price=data.price,
         db=db,
     )
+
+    # Invalidate portfolio cache — holdings have changed
+    await invalidate_portfolio_cache(user.id)
 
     return TransactionResponse(
         id=tx.id,
@@ -220,7 +224,7 @@ async def delete_transaction(
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")
 
-    # Revert old holdings before deleting
+    # Revert the effect on holdings before deleting
     await _revert_holdings(
         user_id=user.id,
         asset_id=tx.asset_id,
@@ -233,8 +237,13 @@ async def delete_transaction(
     await db.delete(tx)
     await db.flush()
 
+    # Invalidate portfolio cache — holdings have changed
+    await invalidate_portfolio_cache(user.id)
 
-# Private helpers  — holdings logic
+
+# ------------------------------------------------------------------
+# Private helpers — holdings logic
+# ------------------------------------------------------------------
 
 async def _get_asset_by_id(asset_id: int, db: AsyncSession):
     from app.models.asset import Asset
@@ -250,7 +259,11 @@ async def _update_holdings(
     price: float,
     db: AsyncSession,
 ) -> None:
-    """Apply a BUY or SELL transaction to the corresponding holding"""
+    """
+    Applies a BUY or SELL transaction to the corresponding holding.
+    BUY: creates or updates holding using weighted average price.
+    SELL: reduces holding quantity, deletes if quantity reaches zero.
+    """
     result = await db.execute(
         select(Holdings).where(
             Holdings.user_id == user_id,
@@ -261,7 +274,7 @@ async def _update_holdings(
 
     if tx_type == "BUY":
         if holding:
-            # Recalculate avg_price using a weighted average
+            # Recalculate avg_price using weighted average
             total_qty = holding.quantity + quantity
             holding.avg_price = (
                 (holding.quantity * holding.avg_price) + (quantity * price)
@@ -299,7 +312,11 @@ async def _revert_holdings(
     price: float,
     db: AsyncSession,
 ) -> None:
-    """Revert the effect of a transaction on the holding."""
-    # Invert the original operation
+    """
+    Reverts the effect of a transaction on holdings.
+    Used before updating or deleting a transaction to restore
+    holdings to their previous state before applying the new values.
+    """
+    # Invert the original operation to undo its effect
     reverse_type = "SELL" if tx_type == "BUY" else "BUY"
     await _update_holdings(user_id, asset_id, reverse_type, quantity, price, db)

@@ -3,25 +3,29 @@ from fastapi import FastAPI
 from app.core.settings import settings
 from app.db.init_db import init_db
 from app.db.session import engine
-from app.routes import portfolio, price, search, fundamentals, market, auth, users, transactions, analytics, watchlist, trading
+from app.core.redis import init_redis, close_redis
 from app.providers.coinmarketcap_provider import coinmarketcap_provider
 from app.providers.finnhub_provider import finnhub_provider
-
+from app.routes import (
+    portfolio, price, search,
+    fundamentals, market, auth,
+    users, transactions, analytics,
+    watchlist, trading
+    )
 import uvicorn
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     await init_db()
-    
-    # TODO: await init_redis() with caché
+    await init_redis()
     yield
 
     # Shutdown
     await coinmarketcap_provider.close()
     finnhub_provider._client.close()
+    await close_redis()
     await engine.dispose() 
-    # TODO: await close_redis() with caché
 
 
 app = FastAPI(

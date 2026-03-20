@@ -1,20 +1,25 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from fastapi import HTTPException
+import asyncio
 
 from app.models.asset import Asset
 from app.providers.finnhub_provider import finnhub_provider
 from app.schemas.fundamentals import FundamentalsResponse
+from app.core.cache import cache_get, cache_set, key_fundamentals, TTL_FUNDAMENTALS
 
 
 async def get_fundamentals(symbol: str, db: AsyncSession) -> FundamentalsResponse:
     symbol = symbol.upper()
 
-    # First, verify that the asset exists in the database and is a stock or ETF
-    # Finnhub lacks fundamental crypto data
-    result = await db.execute(
-        select(Asset).where(Asset.symbol == symbol)
-    )
+    # 1. Check cache — fundamentals change at most once per day
+    cached = await cache_get(key_fundamentals(symbol))
+    if cached:
+        return FundamentalsResponse(**cached)
+
+    # 2. Verify asset exists in DB and is not crypto
+    # Finnhub does not provide fundamental data for crypto assets
+    result = await db.execute(select(Asset).where(Asset.symbol == symbol))
     asset = result.scalar_one_or_none()
 
     if not asset:
@@ -26,9 +31,7 @@ async def get_fundamentals(symbol: str, db: AsyncSession) -> FundamentalsRespons
             detail="Fundamentals are not available for crypto assets"
         )
 
-    # Second, get profile and metrics in parallel — two calls to Finnhub
-    import asyncio
-
+    # 3. Fetch profile and metrics in parallel — two Finnhub calls
     profile, fundamentals = await asyncio.gather(
         finnhub_provider.get_profile(symbol),
         finnhub_provider.get_fundamentals(symbol),
@@ -40,9 +43,8 @@ async def get_fundamentals(symbol: str, db: AsyncSession) -> FundamentalsRespons
             detail=f"Could not fetch fundamentals for '{symbol}'"
         )
 
-    # Third, combine profile data with financial metrics
-    # The profile can be None for lesser-known tickets — we handle gracefully
-    return FundamentalsResponse(
+    # 4. Build response — profile may be None for lesser-known tickers
+    response = FundamentalsResponse(
         symbol=symbol,
         # Valuation
         pe_ratio=fundamentals.pe_ratio,
@@ -60,11 +62,16 @@ async def get_fundamentals(symbol: str, db: AsyncSession) -> FundamentalsRespons
         # Dividends
         dividend_yield=fundamentals.dividend_yield,
         dividend_per_share=fundamentals.dividend_per_share,
-        # Balance
+        # Balance sheet
         debt_to_equity=fundamentals.debt_to_equity,
         current_ratio=fundamentals.current_ratio,
-        # Price
+        # Price metrics
         week_52_high=fundamentals.week_52_high,
         week_52_low=fundamentals.week_52_low,
         beta=fundamentals.beta,
     )
+
+    # 5. Store in cache for TTL_FUNDAMENTALS seconds (24h)
+    await cache_set(key_fundamentals(symbol), response.model_dump(), TTL_FUNDAMENTALS)
+
+    return response

@@ -22,8 +22,16 @@ services:
       - "8000:8000"
     depends_on:
       - db
+      - redis
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/aurumcap
+
+  redis:
+    image: redis:7-alpine
+    container_name: aurumcap_redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
 
 volumes:
   postgres_data:
