@@ -11,7 +11,10 @@ TTL_PRICE = 30              # 30s  - prices change frequently
 TTL_MARKET_STATUS = 60      # 1m - market status changes rarely
 TTL_SEARCH = 300            # 5m - search results are stable
 TTL_FUNDAMENTALS = 86400    # 24h - fundamentals change daily at most
-TTL_PORTFOLIO = 60          # 1m - portfolio value with live prices
+TTL_PORTFOLIO = 300          # 5m - portfolio value with live prices
+TTL_HISTORY        = 3600      # 1h
+TTL_BENCHMARK      = 3600      # 1h
+TTL_ALLOCATION     = 300       # 5 m
 
 
 # Low-level cache operations
@@ -70,3 +73,12 @@ def key_fundamentals(symbol: str) -> str:
 
 def key_portfolio(user_id: int) -> str:
     return f"portfolio:{user_id}"
+
+def key_history(user_id: int, range_: str) -> str:
+    return f"history:{user_id}:{range_}"
+
+def key_benchmark(user_id: int, range_: str) -> str:
+    return f"benchmark:{user_id}:{range_}"
+
+def key_allocation(user_id: int) -> str:
+    return f"allocation:{user_id}"

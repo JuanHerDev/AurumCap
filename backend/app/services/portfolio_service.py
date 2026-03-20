@@ -17,12 +17,12 @@ from app.core.cache import (
 
 async def get_portfolio(user_id: int, db: AsyncSession) -> PortfolioResponse:
 
-    # 1. Check cache — portfolio value is cached for 60s
+    # 1. Check cache — avoids hitting provider rate limits on every request
     cached = await cache_get(key_portfolio(user_id))
     if cached:
         return PortfolioResponse(**cached)
 
-    # 2. Fetch all user holdings with their asset info
+    # 2. Fetch all user holdings joined with their asset info
     result = await db.execute(
         select(Holdings, Asset)
         .join(Asset, Holdings.asset_id == Asset.id)
@@ -33,8 +33,14 @@ async def get_portfolio(user_id: int, db: AsyncSession) -> PortfolioResponse:
     if not rows:
         raise HTTPException(status_code=404, detail=f"No holdings found for user {user_id}")
 
-    # 3. Fetch live price for each holding in parallel
+    # 3. Separate crypto and stock/ETF holdings for different fetch strategies
+    # Crypto uses CoinMarketCap (no strict per-minute limit)
+    # Stocks/ETFs use TwelveData (8 credits/min on free plan — must be sequential)
+    crypto_rows = [(h, a) for h, a in rows if a.asset_type == "crypto"]
+    stock_rows  = [(h, a) for h, a in rows if a.asset_type != "crypto"]
+
     async def fetch_holding_price(holding: Holdings, asset: Asset) -> HoldingItem | None:
+        """Fetches live price and builds a HoldingItem with P&L calculations."""
         try:
             if asset.asset_type == "crypto":
                 data = await coinmarketcap_provider.get_price(asset.symbol)
@@ -43,10 +49,10 @@ async def get_portfolio(user_id: int, db: AsyncSession) -> PortfolioResponse:
                 data = await twelvedata_provider.get_price(asset.symbol)
                 current_price = data.price if data else holding.avg_price
 
-            current_value = holding.quantity * current_price
+            current_value  = holding.quantity * current_price
             total_invested = holding.quantity * holding.avg_price
-            pnl = current_value - total_invested
-            pnl_pct = (pnl / total_invested * 100) if total_invested else 0.0
+            pnl            = current_value - total_invested
+            pnl_pct        = (pnl / total_invested * 100) if total_invested else 0.0
 
             return HoldingItem(
                 asset_id=asset.id,
@@ -60,27 +66,38 @@ async def get_portfolio(user_id: int, db: AsyncSession) -> PortfolioResponse:
                 total_invested=total_invested,
                 pnl=round(pnl, 4),
                 pnl_pct=round(pnl_pct, 4),
-                allocation_pct=0.0,  # Calculated below once we have total value
+                allocation_pct=0.0,  # Calculated after we have the total portfolio value
             )
         except Exception:
             return None
 
-    # Run all price fetches concurrently
-    holding_items = await asyncio.gather(*[
+    # 4a. Fetch crypto prices in parallel — CMC handles concurrent requests fine
+    crypto_items = await asyncio.gather(*[
         fetch_holding_price(holding, asset)
-        for holding, asset in rows
+        for holding, asset in crypto_rows
     ])
 
-    # Filter out any failed fetches
-    holding_items = [h for h in holding_items if h is not None]
+    # 4b. Fetch stock/ETF prices sequentially with delay
+    # TwelveData free plan allows 8 credits/min — sequential with 500ms delay
+    # keeps us well under the limit (max 2 req/s = 120 req/min theoretical,
+    # but the delay ensures we never burst more than 2 per second)
+    stock_items = []
+    for holding, asset in stock_rows:
+        item = await fetch_holding_price(holding, asset)
+        stock_items.append(item)
+        if stock_rows.index((holding, asset)) < len(stock_rows) - 1:
+            await asyncio.sleep(0.5)  # 500ms between each stock request
 
-    # 4. Calculate portfolio totals
-    total_value = sum(h.current_value for h in holding_items)
+    # 5. Combine and filter out any failed fetches
+    holding_items = [h for h in list(crypto_items) + stock_items if h is not None]
+
+    # 6. Calculate portfolio-level totals
+    total_value    = sum(h.current_value  for h in holding_items)
     total_invested = sum(h.total_invested for h in holding_items)
-    total_pnl = total_value - total_invested
-    total_pnl_pct = (total_pnl / total_invested * 100) if total_invested else 0.0
+    total_pnl      = total_value - total_invested
+    total_pnl_pct  = (total_pnl / total_invested * 100) if total_invested else 0.0
 
-    # Assign allocation percentage now that we have the total portfolio value
+    # 7. Assign allocation percentage now that we have the total portfolio value
     for item in holding_items:
         item.allocation_pct = round(
             (item.current_value / total_value * 100) if total_value else 0.0, 2
@@ -96,7 +113,8 @@ async def get_portfolio(user_id: int, db: AsyncSession) -> PortfolioResponse:
         last_updated=datetime.utcnow(),
     )
 
-    # 5. Store in cache for TTL_PORTFOLIO seconds (60s)
+    # 8. Store in cache for TTL_PORTFOLIO seconds (5 min)
+    # Longer TTL reduces TwelveData API calls significantly
     await cache_set(key_portfolio(user_id), response.model_dump(), TTL_PORTFOLIO)
 
     return response

@@ -7,7 +7,6 @@ from app.core.dependencies import get_current_user
 from app.services.analytics_service import (
     get_portfolio_history,
     get_asset_allocation,
-    get_benchmark_comparison
 )
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
@@ -26,11 +25,3 @@ async def portfolio_allocation(
     db: AsyncSession = Depends(get_db),
 ):
     return await get_asset_allocation(current_user.id, db)
-
-@router.get("/portfolio/benchmark")
-async def portfolio_benchmark(
-    range: str = Query(default="1M", description="1D | 1W | 1M | 3M | 1Y | ALL"),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    return await get_benchmark_comparison(current_user.id, range, db)

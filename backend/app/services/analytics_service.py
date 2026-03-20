@@ -4,6 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from fastapi import HTTPException
 
+from app.core.rate_limiter import twelvedata_limiter
+from app.core.cache import (
+    cache_get, cache_set,
+    key_history, key_allocation,
+    TTL_HISTORY, TTL_ALLOCATION,
+)
 from app.models.holdings import Holdings
 from app.models.asset import Asset
 from app.models.portfolio_snapshot import PortfolioSnapshot
@@ -19,7 +25,6 @@ from app.schemas.analytics import (
 
 # ------------------------------------------------------------------
 # Range configuration
-# Each range maps to a number of days and a TwelveData timespan
 # ------------------------------------------------------------------
 
 RANGE_CONFIG = {
@@ -34,7 +39,7 @@ RANGE_CONFIG = {
 
 # ------------------------------------------------------------------
 # Private helper — fetch historical prices from TwelveData
-# Runs in a thread pool to avoid blocking the async event loop
+# Rate limiter acquired before each call to prevent 429 errors
 # ------------------------------------------------------------------
 
 def _get_historical_prices_sync(
@@ -44,12 +49,11 @@ def _get_historical_prices_sync(
     timespan: str,
 ) -> dict:
     """
-    Synchronous function — runs in thread pool via asyncio.to_thread.
+    Synchronous — runs in thread pool via asyncio.to_thread.
     Returns {date_str: close_price} for the given date range.
 
     TwelveData SDK returns a tuple of dicts (one per data point),
-    not a list — this is intentional SDK behavior, not an error.
-    We convert it to a list before processing.
+    not a list — intentional SDK behavior. We convert it to a list.
     """
     from twelvedata import TDClient
     from app.core.settings import settings
@@ -57,7 +61,6 @@ def _get_historical_prices_sync(
     try:
         client = TDClient(apikey=settings.TWELVEDATA_API_KEY)
 
-        # Map internal timespan names to TwelveData interval strings
         interval_map = {
             "minute": "30min",
             "day":    "1day",
@@ -73,28 +76,20 @@ def _get_historical_prices_sync(
             outputsize=500,
         ).as_json()
 
-        # TwelveData SDK returns different types depending on the response:
-        # - tuple: successful response, each element is a {datetime, ohlcv} dict
-        # - dict:  API error response (e.g. invalid symbol, rate limit)
-        # - list:  alternative success format in some SDK versions
         if isinstance(result, tuple):
-            # FIX: convert tuple of dicts to list for uniform processing
             data = list(result)
         elif isinstance(result, dict):
-            # API returned an error object
             print(f"[Analytics] {symbol} API error: {result}")
             return {}
         elif isinstance(result, list):
             data = result
         else:
-            print(f"[Analytics] {symbol} unexpected response type: {type(result)}")
+            print(f"[Analytics] {symbol} unexpected type: {type(result)}")
             return {}
 
         if not data:
             return {}
 
-        # Build {date_str: close_price} dict
-        # Truncate datetime to date only (first 10 chars of "YYYY-MM-DD HH:MM:SS")
         return {
             entry["datetime"][:10]: float(entry["close"])
             for entry in data
@@ -113,7 +108,12 @@ async def _get_historical_prices(
     to_date: str,
     timespan: str,
 ) -> dict:
-    """Async wrapper — runs the sync function in the default thread pool."""
+    """
+    Async wrapper with rate limiting.
+    Acquires a limiter slot before each call to stay under
+    TwelveData's 8 credits/min free plan limit.
+    """
+    await twelvedata_limiter.acquire()
     return await asyncio.to_thread(
         _get_historical_prices_sync,
         symbol, from_date, to_date, timespan,
@@ -130,11 +130,14 @@ async def get_portfolio_history(
     db: AsyncSession,
 ) -> PortfolioHistoryResponse:
     """
-    Returns the portfolio value over time for the given range.
+    Returns portfolio value over time for the given range.
+    Results are cached for 1 hour — historical prices don't change,
+    so there's no reason to re-fetch them on every page visit.
 
     Strategy:
-    1. Use existing DB snapshots where available (fast)
-    2. Reconstruct from holdings + historical prices for missing dates (accurate)
+    1. Return from cache if available (instant)
+    2. Use DB snapshots where available (fast)
+    3. Reconstruct from holdings + TwelveData prices (slow, rate-limited)
     """
     if range_ not in RANGE_CONFIG:
         raise HTTPException(
@@ -142,11 +145,17 @@ async def get_portfolio_history(
             detail=f"Invalid range. Use: {list(RANGE_CONFIG.keys())}"
         )
 
+    # 1. Check cache first — historical data changes at most once per day
+    cached = await cache_get(key_history(user_id, range_))
+    if cached:
+        print(f"[Analytics] Cache hit — history {user_id}/{range_}")
+        return PortfolioHistoryResponse(**cached)
+
     config = RANGE_CONFIG[range_]
     today = date.today()
     from_date = today - timedelta(days=config["days"])
 
-    # 1. Fetch current holdings with their asset info
+    # 2. Fetch holdings
     result = await db.execute(
         select(Holdings, Asset)
         .join(Asset, Holdings.asset_id == Asset.id)
@@ -157,7 +166,7 @@ async def get_portfolio_history(
     if not rows:
         raise HTTPException(status_code=404, detail="No holdings found for this user")
 
-    # 2. Fetch existing snapshots in the date range
+    # 3. Fetch existing DB snapshots in range
     snap_result = await db.execute(
         select(PortfolioSnapshot)
         .where(
@@ -171,8 +180,7 @@ async def get_portfolio_history(
     existing_snapshots = snap_result.scalars().all()
     snapshot_dates = {s.date.date() for s in existing_snapshots}
 
-    # 3. Fetch historical prices sequentially to respect TwelveData rate limits
-    # (800 req/day on free plan — parallel calls would exhaust it quickly)
+    # 4. Fetch historical prices sequentially — rate limiter handles pacing
     async def fetch_historical_prices(holding: Holdings, asset: Asset) -> dict:
         try:
             prices = await _get_historical_prices(
@@ -187,7 +195,7 @@ async def get_portfolio_history(
                 "symbol": asset.symbol,
                 "quantity": holding.quantity,
                 "avg_price": holding.avg_price,
-                "prices": prices,  # {date_str: close_price}
+                "prices": prices,
             }
         except Exception as e:
             print(f"[Analytics] fetch error {asset.symbol}: {e}")
@@ -203,9 +211,8 @@ async def get_portfolio_history(
     for holding, asset in rows:
         data = await fetch_historical_prices(holding, asset)
         holdings_data.append(data)
-        await asyncio.sleep(0.5)  # 500ms delay between calls to avoid rate limits
 
-    # 4. Collect all available dates across all holdings
+    # 5. Collect all available dates
     all_dates = set()
     for hd in holdings_data:
         all_dates.update(hd["prices"].keys())
@@ -218,13 +225,13 @@ async def get_portfolio_history(
 
     all_dates = sorted(all_dates)
 
-    # 5. Build time series — one SnapshotPoint per date
+    # 6. Build time series — one SnapshotPoint per date
     history_points = []
 
     for date_str in all_dates:
         snap_date = datetime.strptime(date_str[:10], "%Y-%m-%d").date()
 
-        # Use existing DB snapshot if available for this date
+        # Use DB snapshot if available for this date
         if snap_date in snapshot_dates:
             snap = next(
                 s for s in existing_snapshots
@@ -249,7 +256,6 @@ async def get_portfolio_history(
             price = hd["prices"].get(date_str)
 
             if price is None:
-                # Fall back to the closest available prior price
                 available = [d for d in hd["prices"].keys() if d <= date_str]
                 price = hd["prices"][available[-1]] if available else None
 
@@ -274,11 +280,17 @@ async def get_portfolio_history(
             pnl_pct=round(pnl_pct, 4),
         ))
 
-    return PortfolioHistoryResponse(
+    response = PortfolioHistoryResponse(
         user_id=user_id,
         range=range_,
         snapshots=history_points,
     )
+
+    # 7. Cache for 1 hour — historical prices don't change
+    await cache_set(key_history(user_id, range_), response.model_dump(), TTL_HISTORY)
+    print(f"[Analytics] Cached history {user_id}/{range_} for {TTL_HISTORY}s")
+
+    return response
 
 
 # ------------------------------------------------------------------
@@ -290,9 +302,16 @@ async def get_asset_allocation(
     db: AsyncSession,
 ) -> AssetAllocationResponse:
     """
-    Returns the current value distribution across holdings.
-    Fetches live prices for all assets in parallel.
+    Returns current value distribution across holdings.
+    Cached for 5 minutes — uses live prices but doesn't need
+    to be updated on every single page visit.
     """
+    # Check cache first
+    cached = await cache_get(key_allocation(user_id))
+    if cached:
+        print(f"[Analytics] Cache hit — allocation {user_id}")
+        return AssetAllocationResponse(**cached)
+
     result = await db.execute(
         select(Holdings, Asset)
         .join(Asset, Holdings.asset_id == Asset.id)
@@ -309,6 +328,7 @@ async def get_asset_allocation(
                 data = await coinmarketcap_provider.get_price(asset.symbol)
                 price = data.price if data else holding.avg_price
             else:
+                # Rate limiter applied inside twelvedata_provider.get_price
                 data = await twelvedata_provider.get_price(asset.symbol)
                 price = data.price if data else holding.avg_price
 
@@ -319,7 +339,6 @@ async def get_asset_allocation(
                 "current_value": holding.quantity * price,
             }
         except Exception:
-            # Fall back to avg_price if live price fetch fails
             return {
                 "symbol": asset.symbol,
                 "name": asset.name,
@@ -327,16 +346,14 @@ async def get_asset_allocation(
                 "current_value": holding.quantity * holding.avg_price,
             }
 
-    # Allocation uses live prices — parallel calls are fine here
-    # (only one call per asset, not a batch of historical data)
-    items_data = await asyncio.gather(*[
-        fetch_current_value(holding, asset)
-        for holding, asset in rows
-    ])
+    # Sequential to respect rate limiter
+    items_data = []
+    for holding, asset in rows:
+        item = await fetch_current_value(holding, asset)
+        items_data.append(item)
 
     total_value = sum(item["current_value"] for item in items_data)
 
-    # Sort by value descending so the donut chart renders largest slice first
     allocations = [
         AssetAllocationItem(
             symbol=item["symbol"],
@@ -354,93 +371,13 @@ async def get_asset_allocation(
         )
     ]
 
-    return AssetAllocationResponse(
+    response = AssetAllocationResponse(
         user_id=user_id,
         total_value=round(total_value, 2),
         allocations=allocations,
     )
 
+    # Cache for 5 minutes
+    await cache_set(key_allocation(user_id), response.model_dump(), TTL_ALLOCATION)
 
-# ------------------------------------------------------------------
-# Portfolio vs benchmark (SPY)
-# ------------------------------------------------------------------
-
-async def get_benchmark_comparison(
-    user_id: int,
-    range_: str,
-    db: AsyncSession,
-) -> dict:
-    """
-    Compares portfolio performance against SPY (S&P 500 ETF).
-    Both series are normalized to base 100 for visual comparison.
-
-    Example: if portfolio started at $30,000 and is now $47,000,
-    it shows as 100 → 156.6. If SPY went from $580 to $600,
-    it shows as 100 → 103.4. Makes performance comparison intuitive.
-    """
-    if range_ not in RANGE_CONFIG:
-        raise HTTPException(status_code=400, detail="Invalid range.")
-
-    config = RANGE_CONFIG[range_]
-    today = date.today()
-    from_date = today - timedelta(days=config["days"])
-
-    # Fetch portfolio history and SPY prices concurrently
-    # SPY fetch runs in parallel because it's independent of the user's holdings
-    portfolio_history, spy_prices = await asyncio.gather(
-        get_portfolio_history(user_id, range_, db),
-        _get_historical_prices(
-            symbol="SPY",
-            asset_type="stock",
-            from_date=from_date.strftime("%Y-%m-%d"),
-            to_date=today.strftime("%Y-%m-%d"),
-            timespan=config["timespan"],
-        ),
-    )
-
-    if not portfolio_history.snapshots or not spy_prices:
-        raise HTTPException(
-            status_code=502,
-            detail="Could not fetch benchmark data"
-        )
-
-    # Normalize both series to base 100 at the start of the period
-    first_portfolio = portfolio_history.snapshots[0].total_value
-    spy_dates = sorted(spy_prices.keys())
-    first_spy = spy_prices[spy_dates[0]] if spy_dates else 1
-
-    portfolio_normalized = [
-        {
-            "date": p.date.isoformat(),
-            "value": round(p.total_value / first_portfolio * 100, 2),
-        }
-        for p in portfolio_history.snapshots
-    ]
-
-    spy_normalized = [
-        {
-            "date": date_str,
-            "value": round(spy_prices[date_str] / first_spy * 100, 2),
-        }
-        for date_str in spy_dates
-    ]
-
-    # Calculate total return for the period
-    portfolio_return = round(
-        (portfolio_history.snapshots[-1].total_value / first_portfolio - 1) * 100, 2
-    ) if len(portfolio_history.snapshots) > 1 else 0.0
-
-    spy_return = round(
-        (spy_prices[spy_dates[-1]] / first_spy - 1) * 100, 2
-    ) if len(spy_dates) > 1 else 0.0
-
-    return {
-        "user_id": user_id,
-        "range": range_,
-        "portfolio": portfolio_normalized,
-        "benchmark": spy_normalized,
-        "benchmark_symbol": "SPY",
-        "portfolio_return_pct": portfolio_return,
-        "benchmark_return_pct": spy_return,
-        "outperforming": portfolio_return > spy_return,
-    }
+    return response

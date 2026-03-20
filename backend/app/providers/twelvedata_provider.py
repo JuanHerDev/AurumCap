@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from typing import Optional
 from twelvedata import TDClient
 from app.core.settings import settings
+from app.core.rate_limiter import twelvedata_limiter
+
 
 @dataclass
 class StockPrice:
@@ -24,7 +26,6 @@ class TwelveDataProvider:
         self._client = TDClient(apikey=settings.TWELVEDATA_API_KEY)
 
     def _get_price_sync(self, symbol: str) -> Optional[StockPrice]:
-
         try:
             price_data = self._client.price(symbol=symbol).as_json()
 
@@ -33,15 +34,15 @@ class TwelveDataProvider:
 
             current_price = float(price_data["price"])
 
-            # OHLCV + data previous day
+            # OHLCV + previous day data
             quote_data = self._client.quote(symbol=symbol).as_json()
 
-            open_  = float(quote_data.get("open", current_price))
-            high   = float(quote_data.get("high", current_price))
-            low    = float(quote_data.get("low", current_price))
-            close  = float(quote_data.get("previous_close", current_price))
-            volume = int(float(quote_data.get("volume", 0)))
-            change = float(quote_data.get("change", 0))
+            open_      = float(quote_data.get("open", current_price))
+            high       = float(quote_data.get("high", current_price))
+            low        = float(quote_data.get("low", current_price))
+            close      = float(quote_data.get("previous_close", current_price))
+            volume     = int(float(quote_data.get("volume", 0)))
+            change     = float(quote_data.get("change", 0))
             change_pct = float(quote_data.get("percent_change", 0))
             is_market_open = quote_data.get("is_market_open", False)
 
@@ -59,14 +60,20 @@ class TwelveDataProvider:
                 change_pct=round(change_pct, 4),
                 market_status=market_status,
             )
-        
+
         except Exception as e:
             print(f"[TwelveDataProvider] Error in {symbol}: {type(e).__name__}: {e}")
             return None
-        
+
     async def get_price(self, symbol: str) -> Optional[StockPrice]:
-        # Current price + Metrics of day in Stock or ETF
+        """
+        Current price + daily metrics for a stock or ETF.
+        Acquires a rate limiter slot before calling the API
+        to avoid hitting TwelveData's 8 credits/min free plan limit.
+        """
+        await twelvedata_limiter.acquire()
         return await asyncio.to_thread(self._get_price_sync, symbol.upper())
-    
+
+
 # Global instance
 twelvedata_provider = TwelveDataProvider()
