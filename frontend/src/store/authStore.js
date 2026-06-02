@@ -31,7 +31,7 @@ const useAuthStore = create((set) => ({
     register: async (email, password, fullName) => {
         set ({ isLoading: true, error: null})
         try {
-            const { data } = await client.post('/aurh/register', {
+            const { data } = await client.post('/auth/register', {
                 email,
                 password,
                 full_name: fullName,
@@ -55,7 +55,7 @@ const useAuthStore = create((set) => ({
     logout: () => {
         localStorage.removeItem('token')
         set ({ user: null, token:null, isAuthenticated: false })
-        window.Location.href = '/auth'
+        window.location.href = '/auth'
     },
 
     fetchUser: async () => {

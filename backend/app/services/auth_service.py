@@ -53,6 +53,8 @@ async def register_user(data: RegisterRequest, db: AsyncSession) -> TokenRespons
     )
     db.add(user)
     await db.flush()    # flush to get the id without closing the transaction
+    await db.commit()
+    await db.refresh(user)
 
     return TokenResponse(access_token=_create_token(user.id))
 
